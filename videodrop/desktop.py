@@ -195,11 +195,13 @@ def focus_videodrop_window() -> bool:
     return _focus_window(hwnd) if hwnd else False
 
 
-def focus_existing_app_window(state: dict[str, object] | None = None) -> bool:
+def focus_existing_app_window(state: dict[str, object] | None = None, allow_title_fallback: bool = True) -> bool:
     state = state or read_runtime_state()
     browser_pid = state.get("browser_pid")
     pid = browser_pid if isinstance(browser_pid, int) else None
-    return focus_window_for_pid(pid) or focus_videodrop_window()
+    if focus_window_for_pid(pid):
+        return True
+    return allow_title_fallback and focus_videodrop_window()
 
 
 def notify_existing_instance(state: dict[str, object]) -> bool:
@@ -328,8 +330,10 @@ class DesktopRuntime:
         write_runtime_state(self.url, self.port, self.browser_process.pid if self.browser_process else None)
 
     def focus_or_open_app_window(self) -> None:
-        if focus_existing_app_window({"url": self.url, "port": self.port, "browser_pid": self.browser_process.pid if self.browser_process else None}):
-            return
+        if self.browser_process is not None:
+            state = {"url": self.url, "port": self.port, "browser_pid": self.browser_process.pid}
+            if focus_existing_app_window(state):
+                return
         self.open_app_window()
 
     def open_in_browser(self) -> None:

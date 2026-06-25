@@ -135,6 +135,8 @@ def test_desktop_launcher_has_tray_mode_browser_app_without_hosts_alias():
     assert "notify_existing_instance(state)" in desktop_py
     assert 'urljoin(url, "/api/desktop/open")' in desktop_py
     assert "SetForegroundWindow" in desktop_py
+    assert "if self.browser_process is not None:" in desktop_py
+    assert "allow_title_fallback: bool = True" in desktop_py
     assert "launch_browser_app(existing_url)" not in desktop_py
     assert 'f"--app={url}"' in desktop_py
     assert '"--start-maximized"' in desktop_py
@@ -188,7 +190,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.2"' in installer
+    assert '#define MyAppVersion "1.0.3"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
