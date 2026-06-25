@@ -10,6 +10,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/isacfmaia/videodrop/releases/latest/download/VideoDrop-Setup.exe">
+    <img alt="Baixar VideoDrop para Windows" src="https://img.shields.io/badge/Baixar%20VideoDrop-Windows%20Setup-F6C945?style=for-the-badge&logo=windows&logoColor=111111" />
+  </a>
+</p>
+
+<p align="center">
   <a href="#-sobre-o-projeto">Sobre</a> •
   <a href="#-funcionalidades">Funcionalidades</a> •
   <a href="#-download-e-instalação">Download</a> •
