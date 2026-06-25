@@ -16,16 +16,51 @@ const shareSheetMeta = document.querySelector("#shareSheetMeta");
 const shareNowButton = document.querySelector("#shareNowButton");
 const shareSheetClose = document.querySelector("#shareSheetClose");
 const shareSheetCancel = document.querySelector("#shareSheetCancel");
+const screenRecordButton = document.querySelector("#screenRecordButton");
+const systemAudioToggle = document.querySelector("#systemAudioToggle");
+const microphoneToggle = document.querySelector("#microphoneToggle");
+const recorderSupportNote = document.querySelector("#recorderSupportNote");
+const recordingDock = document.querySelector("#recordingDock");
+const recordingTimer = document.querySelector("#recordingTimer");
+const recordingStopButton = document.querySelector("#recordingStopButton");
 const ANALYZE_TIMEOUT_MS = 120000;
 const DOWNLOAD_READY_TIMEOUT_MS = 30 * 60 * 1000;
 const DOWNLOAD_READY_POLL_MS = 400;
 const DOWNLOAD_READY_COOKIE_PREFIX = "videodrop_download_";
+const RECORDER_MIME_TYPES = [
+  "video/webm;codecs=vp9,opus",
+  "video/webm;codecs=vp8,opus",
+  "video/webm"
+];
+const CAPTION_LANGUAGE = "pt-BR";
 
 let currentUrl = "";
 let currentData = null;
 let activeController = null;
 let analyzeRunId = 0;
 let preparedSharePayload = null;
+let screenStream = null;
+let microphoneStream = null;
+let recordingStream = null;
+let recordingAudioContext = null;
+let recordingAudioSources = [];
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingObjectUrl = "";
+let recordingStartedAt = 0;
+let recordingTimerId = 0;
+let recordingStopping = false;
+let recordingMetaSuffix = "WebM local";
+let captionsRequestedForRecording = false;
+let captionsSupportedForRecording = false;
+let captionRecognition = null;
+let captionRecognitionActive = false;
+let captionRestartTimerId = 0;
+let captionSegments = [];
+let captionInterimText = "";
+let captionLastSegmentEnd = 0;
+let captionObjectUrl = "";
+let captionStatusMessage = "";
 
 // Theme handling.
 function setTheme(theme, persist = true) {
@@ -76,6 +111,14 @@ function formatDuration(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60).toString().padStart(2, "0");
   return `${mins}:${secs}`;
+}
+
+function formatClock(seconds) {
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, "0");
+  const secs = Math.floor(totalSeconds % 60).toString().padStart(2, "0");
+  return hours ? `${hours}:${mins}:${secs}` : `${mins}:${secs}`;
 }
 
 function waitForPaint() {
@@ -286,6 +329,572 @@ async function prepareDownload(format, triggerLink, event) {
   resetPasteHint(isReady ? 2200 : 5200);
 }
 
+// Screen recording flow.
+function screenRecordingSupported() {
+  return Boolean(navigator.mediaDevices?.getDisplayMedia && window.MediaRecorder);
+}
+
+function screenRecordingUnsupportedMessage() {
+  if (!window.isSecureContext) {
+    return "Gravação de tela indisponível nesta origem. Abra pelo app ou por http://127.0.0.1:8000.";
+  }
+  return "Gravação de tela indisponível neste navegador. Use Chrome ou Edge em HTTPS ou localhost.";
+}
+
+function setRecorderButtonState(state) {
+  if (!screenRecordButton) return;
+
+  screenRecordButton.classList.toggle("is-loading", state === "starting");
+  screenRecordButton.disabled = state !== "idle";
+  const label = screenRecordButton.querySelector("span");
+  if (!label) return;
+
+  if (state === "unsupported") label.textContent = "Indisponível";
+  else if (state === "starting") label.textContent = "Abrindo seletor";
+  else if (state === "recording") label.textContent = "Gravando";
+  else label.textContent = "Gravar tela";
+}
+
+function setupScreenRecorderSupport() {
+  if (!screenRecordButton) return;
+
+  if (!screenRecordingSupported()) {
+    setRecorderButtonState("unsupported");
+    if (recorderSupportNote) {
+      recorderSupportNote.textContent = screenRecordingUnsupportedMessage();
+    }
+    return;
+  }
+
+  setRecorderButtonState("idle");
+}
+
+function selectRecorderMimeType() {
+  if (!window.MediaRecorder?.isTypeSupported) return "";
+  return RECORDER_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function recordingFileName() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `videodrop-gravacao-${stamp}.webm`;
+}
+
+function captionFileName(videoFileName) {
+  return videoFileName.replace(/\.webm$/i, ".srt") || "videodrop-gravacao.srt";
+}
+
+function clearRecordingObjectUrl() {
+  if (recordingObjectUrl) URL.revokeObjectURL(recordingObjectUrl);
+  recordingObjectUrl = "";
+}
+
+function clearCaptionObjectUrl() {
+  if (captionObjectUrl) URL.revokeObjectURL(captionObjectUrl);
+  captionObjectUrl = "";
+}
+
+function stopStreamTracks(stream) {
+  stream?.getTracks().forEach((track) => track.stop());
+}
+
+function speechRecognitionConstructor() {
+  return window.SpeechRecognition || window.webkitSpeechRecognition;
+}
+
+function speechRecognitionSupported() {
+  return Boolean(speechRecognitionConstructor());
+}
+
+function normalizeCaptionText(text) {
+  return (text || "").replace(/\s+/g, " ").trim();
+}
+
+function captionElapsedSeconds() {
+  return recordingStartedAt ? (Date.now() - recordingStartedAt) / 1000 : 0;
+}
+
+function estimateCaptionDurationSeconds(text) {
+  const wordCount = normalizeCaptionText(text).split(" ").filter(Boolean).length;
+  return Math.min(6, Math.max(1.2, wordCount * 0.42));
+}
+
+function appendCaptionSegment(text) {
+  const cleanText = normalizeCaptionText(text);
+  if (!cleanText) return;
+
+  const end = Math.max(captionElapsedSeconds(), captionLastSegmentEnd + 0.4);
+  const estimatedStart = Math.max(0, end - estimateCaptionDurationSeconds(cleanText));
+  const start = Math.max(captionLastSegmentEnd, estimatedStart);
+  captionSegments.push({ start, end, text: cleanText });
+  captionLastSegmentEnd = end;
+}
+
+function formatSrtTimestamp(seconds) {
+  const totalMilliseconds = Math.max(0, Math.floor(seconds * 1000));
+  const milliseconds = (totalMilliseconds % 1000).toString().padStart(3, "0");
+  const totalSeconds = Math.floor(totalMilliseconds / 1000);
+  const hours = Math.floor(totalSeconds / 3600).toString().padStart(2, "0");
+  const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, "0");
+  const secs = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${hours}:${minutes}:${secs},${milliseconds}`;
+}
+
+function buildSrtContent(segments, durationSeconds) {
+  return segments
+    .map((segment, index) => {
+      const start = Math.max(0, segment.start);
+      const end = Math.max(start + 0.4, Math.min(durationSeconds || segment.end, segment.end));
+      return [
+        String(index + 1),
+        `${formatSrtTimestamp(start)} --> ${formatSrtTimestamp(end)}`,
+        segment.text
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
+function buildCaptionFile(videoFileName, durationSeconds) {
+  const finalSegments = captionSegments.filter((segment) => normalizeCaptionText(segment.text));
+  if (!finalSegments.length) return null;
+
+  const srtContent = buildSrtContent(finalSegments, durationSeconds);
+  if (!srtContent.trim()) return null;
+
+  return new File([srtContent], captionFileName(videoFileName), {
+    type: "application/x-subrip;charset=utf-8"
+  });
+}
+
+function updateCaptionLiveStatus(message) {
+  captionStatusMessage = message;
+  const status = document.querySelector("#captionStatus");
+  if (status) status.textContent = message;
+}
+
+function resetCaptionCapture(wantsMicrophone) {
+  stopCaptionRecognition();
+  captionSegments = [];
+  captionInterimText = "";
+  captionLastSegmentEnd = 0;
+  captionsRequestedForRecording = Boolean(wantsMicrophone);
+  captionsSupportedForRecording = captionsRequestedForRecording && speechRecognitionSupported();
+  captionStatusMessage = captionsRequestedForRecording
+    ? (captionsSupportedForRecording ? "Legendas: aguardando fala do microfone." : "Legendas indisponíveis neste navegador.")
+    : "";
+}
+
+function handleCaptionResult(event) {
+  if (!captionsRequestedForRecording) return;
+
+  const interimTexts = [];
+  for (let index = event.resultIndex; index < event.results.length; index += 1) {
+    const result = event.results[index];
+    const alternative = result?.[0];
+    const text = normalizeCaptionText(alternative?.transcript);
+    if (!text) continue;
+
+    if (result.isFinal) appendCaptionSegment(text);
+    else interimTexts.push(text);
+  }
+
+  captionInterimText = normalizeCaptionText(interimTexts.join(" "));
+  if (captionInterimText) {
+    updateCaptionLiveStatus(`Legenda: ${captionInterimText}`);
+  } else if (captionSegments.length) {
+    updateCaptionLiveStatus("Legendas: texto reconhecido.");
+  }
+}
+
+function startCaptionRecognition() {
+  if (!captionsRequestedForRecording) return;
+
+  const SpeechRecognition = speechRecognitionConstructor();
+  if (!SpeechRecognition) {
+    captionsSupportedForRecording = false;
+    updateCaptionLiveStatus("Legendas indisponíveis neste navegador.");
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  captionRecognition = recognition;
+  captionRecognitionActive = true;
+  recognition.lang = CAPTION_LANGUAGE;
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.maxAlternatives = 1;
+
+  recognition.addEventListener("start", () => {
+    updateCaptionLiveStatus("Legendas: ouvindo microfone.");
+  });
+  recognition.addEventListener("result", handleCaptionResult);
+  recognition.addEventListener("error", (event) => {
+    if (event.error === "no-speech") {
+      updateCaptionLiveStatus("Legendas: aguardando fala do microfone.");
+      return;
+    }
+    captionRecognitionActive = false;
+    captionsSupportedForRecording = false;
+    updateCaptionLiveStatus("Legendas indisponíveis durante esta gravação.");
+  });
+  recognition.addEventListener("end", () => {
+    if (captionRecognition !== recognition) return;
+    if (!captionRecognitionActive || recordingStopping || mediaRecorder?.state !== "recording") return;
+
+    captionRestartTimerId = window.setTimeout(() => {
+      try {
+        recognition.start();
+      } catch {
+        updateCaptionLiveStatus("Legendas pausadas pelo navegador.");
+      }
+    }, 250);
+  });
+
+  try {
+    recognition.start();
+  } catch {
+    captionRecognitionActive = false;
+    captionsSupportedForRecording = false;
+    captionRecognition = null;
+    updateCaptionLiveStatus("Legendas indisponíveis neste navegador.");
+  }
+}
+
+function stopCaptionRecognition() {
+  captionRecognitionActive = false;
+  if (captionRestartTimerId) {
+    window.clearTimeout(captionRestartTimerId);
+    captionRestartTimerId = 0;
+  }
+
+  if (!captionRecognition) return;
+
+  try {
+    captionRecognition.stop();
+  } catch {
+    // SpeechRecognition may already be stopped by the browser.
+  }
+  captionRecognition = null;
+  captionInterimText = "";
+}
+
+function cleanupRecordingSession() {
+  window.clearInterval(recordingTimerId);
+  recordingTimerId = 0;
+  recordingDock.hidden = true;
+  stopCaptionRecognition();
+
+  stopStreamTracks(recordingStream);
+  stopStreamTracks(screenStream);
+  stopStreamTracks(microphoneStream);
+
+  recordingAudioSources = [];
+  recordingAudioContext?.close?.().catch(() => {});
+  recordingAudioContext = null;
+  recordingStream = null;
+  screenStream = null;
+  microphoneStream = null;
+  mediaRecorder = null;
+  recordingStopping = false;
+  setRecorderButtonState(screenRecordingSupported() ? "idle" : "unsupported");
+}
+
+function renderLiveRecordingPreview() {
+  previewFrame.innerHTML = '<video class="recording-preview-video" autoplay muted playsinline></video>';
+  const video = previewFrame.querySelector("video");
+  video.srcObject = screenStream;
+  video.play().catch(() => {});
+
+  statusPill.textContent = "Gravando";
+  previewTitle.textContent = "Gravação de tela";
+  updateRecordingTimer();
+}
+
+function renderRecordingLiveState() {
+  const captionStatus = captionsRequestedForRecording
+    ? `<p class="caption-status" id="captionStatus">${captionStatusMessage}</p>`
+    : "";
+
+  results.innerHTML = `
+    <div class="loading-state recording-live-state">
+      <img class="loading-brand" src="/videodrop_loader_animado.svg" alt="" aria-hidden="true" />
+      <p>Gravação em andamento. Use o controle flutuante para parar.</p>
+      ${captionStatus}
+    </div>
+  `;
+}
+
+function updateRecordingTimer() {
+  if (!recordingStartedAt) return;
+  const elapsedSeconds = (Date.now() - recordingStartedAt) / 1000;
+  const timeLabel = formatClock(elapsedSeconds);
+  if (recordingTimer) recordingTimer.textContent = timeLabel;
+  previewMeta.textContent = `${timeLabel} - ${recordingMetaSuffix}`;
+}
+
+function startRecordingTimer() {
+  recordingStartedAt = Date.now();
+  updateRecordingTimer();
+  recordingTimerId = window.setInterval(updateRecordingTimer, 500);
+}
+
+function buildRecordingStream(displayStream, micStream, wantsSystemAudio) {
+  const outputStream = new MediaStream();
+  const videoTrack = displayStream.getVideoTracks()[0];
+  if (!videoTrack) throw new Error("display video unavailable");
+  outputStream.addTrack(videoTrack);
+
+  const audioStreams = [];
+  const displayAudioTracks = displayStream.getAudioTracks();
+  if (displayAudioTracks.length) {
+    audioStreams.push(new MediaStream(displayAudioTracks));
+  } else if (wantsSystemAudio) {
+    pasteHint.textContent = "O navegador não entregou áudio do sistema para essa fonte.";
+    pasteHint.classList.add("flash");
+    resetPasteHint(4200);
+  }
+
+  const microphoneTracks = micStream?.getAudioTracks() || [];
+  if (microphoneTracks.length) audioStreams.push(new MediaStream(microphoneTracks));
+
+  const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+  if (audioStreams.length > 1 && AudioContextConstructor) {
+    recordingAudioContext = new AudioContextConstructor();
+    const destination = recordingAudioContext.createMediaStreamDestination();
+    recordingAudioSources = audioStreams.map((stream) => {
+      const source = recordingAudioContext.createMediaStreamSource(stream);
+      source.connect(destination);
+      return source;
+    });
+    destination.stream.getAudioTracks().forEach((track) => outputStream.addTrack(track));
+  } else {
+    audioStreams.forEach((stream) => {
+      stream.getAudioTracks().forEach((track) => outputStream.addTrack(track));
+    });
+  }
+
+  return outputStream;
+}
+
+function screenRecordingErrorMessage(error) {
+  if (error.name === "NotAllowedError") return "Permissão de gravação negada pelo navegador.";
+  if (error.name === "NotFoundError") return "Nenhuma fonte de tela foi selecionada.";
+  if (error.name === "NotReadableError") return "O sistema bloqueou a captura da fonte escolhida.";
+  if (error.name === "TypeError") return "Este navegador não aceitou as opções de gravação solicitadas.";
+  return "Não consegui iniciar a gravação de tela agora.";
+}
+
+function stopScreenRecording() {
+  if (recordingStopping) return;
+  recordingStopping = true;
+  stopCaptionRecognition();
+
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    try {
+      mediaRecorder.requestData();
+    } catch {
+      // Some browsers reject requestData() when the recorder is already stopping.
+    }
+    mediaRecorder.stop();
+    return;
+  }
+
+  cleanupRecordingSession();
+}
+
+function handleRecorderStop() {
+  const mimeType = mediaRecorder?.mimeType || "video/webm";
+  const durationSeconds = recordingStartedAt ? (Date.now() - recordingStartedAt) / 1000 : 0;
+  const blob = new Blob(recordedChunks, { type: mimeType });
+  const file = new File([blob], recordingFileName(), { type: blob.type || "video/webm" });
+  const captionFile = captionsRequestedForRecording ? buildCaptionFile(file.name, durationSeconds) : null;
+
+  recordedChunks = [];
+  cleanupRecordingSession();
+
+  if (!blob.size) {
+    setError("A gravação terminou sem dados. Tente gravar novamente.");
+    return;
+  }
+
+  clearRecordingObjectUrl();
+  clearCaptionObjectUrl();
+  recordingObjectUrl = URL.createObjectURL(blob);
+  if (captionFile) captionObjectUrl = URL.createObjectURL(captionFile);
+  renderRecordingResult(file, recordingObjectUrl, durationSeconds, captionFile, captionObjectUrl);
+}
+
+function handleRecorderError() {
+  pasteHint.textContent = "A gravação foi interrompida pelo navegador.";
+  pasteHint.classList.add("flash");
+  resetPasteHint(4200);
+  stopScreenRecording();
+}
+
+function renderRecordingResult(file, objectUrl, durationSeconds, captionFile = null, captionUrl = "") {
+  statusPill.textContent = "Gravação pronta";
+  previewTitle.textContent = "Gravação da tela";
+  previewMeta.textContent = `${formatClock(durationSeconds)} - ${formatBytes(file.size)} - WebM`;
+  previewFrame.innerHTML = '<video class="recording-playback-video" controls playsinline></video>';
+  previewFrame.querySelector("video").src = objectUrl;
+  const captionAction = captionFile && captionUrl
+    ? '<a class="ghost-button caption-download-button">Baixar legenda</a>'
+    : "";
+
+  results.innerHTML = `
+    <article class="recording-result">
+      <div>
+        <h3>Gravação pronta</h3>
+        <p>${formatClock(durationSeconds)} - ${formatBytes(file.size)} - WebM local${captionFile ? " - legenda SRT" : ""}</p>
+      </div>
+      <div class="format-actions">
+        <button class="ghost-button recording-share-button" type="button">WhatsApp</button>
+        ${captionAction}
+        <a class="download-button recording-download-button">Baixar</a>
+      </div>
+    </article>
+  `;
+
+  const download = results.querySelector(".recording-download-button");
+  download.href = objectUrl;
+  download.download = file.name;
+
+  const captionDownload = results.querySelector(".caption-download-button");
+  if (captionDownload && captionFile) {
+    captionDownload.href = captionUrl;
+    captionDownload.download = captionFile.name;
+  }
+
+  const share = results.querySelector(".recording-share-button");
+  share.addEventListener("click", () => shareRecordedFile(file, share));
+}
+
+function recordingWhatsAppFileName(fileName) {
+  return fileName.replace(/\.webm$/i, "-whatsapp.mp4") || "videodrop-gravacao-whatsapp.mp4";
+}
+
+async function convertRecordedFileForWhatsApp(file) {
+  const response = await fetch("/api/recordings/whatsapp", {
+    method: "POST",
+    headers: { "Content-Type": file.type || "video/webm" },
+    body: file
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => null);
+    throw new Error(error?.detail || "Não consegui converter a gravação para MP4.");
+  }
+
+  const blob = await response.blob();
+  return new File([blob], recordingWhatsAppFileName(file.name), { type: "video/mp4" });
+}
+
+async function shareRecordedFile(file, triggerButton) {
+  const originalText = triggerButton.textContent;
+  triggerButton.disabled = true;
+  triggerButton.classList.add("is-loading");
+  triggerButton.textContent = "Convertendo...";
+  pasteHint.textContent = "Convertendo gravação para MP4...";
+  pasteHint.classList.add("flash");
+
+  try {
+    if (!navigator.share) {
+      throw new Error("native share unavailable");
+    }
+
+    const mp4File = await convertRecordedFileForWhatsApp(file);
+    const sharePayload = { files: [mp4File], title: "VideoDrop" };
+    if (!navigator.share || !navigator.canShare || !navigator.canShare(sharePayload)) {
+      throw new Error("file share unavailable");
+    }
+
+    showShareSheet(mp4File);
+    pasteHint.textContent = "MP4 pronto para compartilhar.";
+    pasteHint.classList.add("flash");
+    resetPasteHint();
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      pasteHint.textContent = "Não consegui preparar o MP4 para compartilhar. Baixe o vídeo e envie manualmente.";
+      pasteHint.classList.add("flash");
+      resetPasteHint(5200);
+    }
+  } finally {
+    triggerButton.disabled = false;
+    triggerButton.classList.remove("is-loading");
+    triggerButton.textContent = originalText;
+  }
+}
+
+async function startScreenRecording() {
+  if (!screenRecordingSupported()) {
+    setupScreenRecorderSupport();
+    return;
+  }
+  if (mediaRecorder && mediaRecorder.state === "recording") return;
+
+  const wantsSystemAudio = Boolean(systemAudioToggle?.checked);
+  const wantsMicrophone = Boolean(microphoneToggle?.checked);
+  const audioLabels = [
+    wantsSystemAudio ? "áudio do sistema" : null,
+    wantsMicrophone ? "microfone" : null
+  ].filter(Boolean);
+  recordingMetaSuffix = audioLabels.length ? `WebM local com ${audioLabels.join(" + ")}` : "WebM local sem áudio";
+  closeShareSheet();
+  setRecorderButtonState("starting");
+  clearRecordingObjectUrl();
+  clearCaptionObjectUrl();
+  resetCaptionCapture(wantsMicrophone);
+
+  try {
+    const displayOptions = {
+      video: true,
+      audio: wantsSystemAudio ? { suppressLocalAudioPlayback: false } : false,
+      monitorTypeSurfaces: "include",
+      selfBrowserSurface: "exclude",
+      surfaceSwitching: "include"
+    };
+    if (wantsSystemAudio) {
+      displayOptions.systemAudio = "include";
+      displayOptions.windowAudio = "system";
+    }
+
+    screenStream = await navigator.mediaDevices.getDisplayMedia(displayOptions);
+    if (wantsMicrophone) {
+      microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+
+    recordingStream = buildRecordingStream(screenStream, microphoneStream, wantsSystemAudio);
+    if (recordingAudioContext?.state === "suspended") {
+      await recordingAudioContext.resume().catch(() => {});
+    }
+    const mimeType = selectRecorderMimeType();
+    mediaRecorder = new MediaRecorder(recordingStream, mimeType ? { mimeType } : undefined);
+    recordedChunks = [];
+    recordingStopping = false;
+
+    mediaRecorder.addEventListener("dataavailable", (event) => {
+      if (event.data?.size) recordedChunks.push(event.data);
+    });
+    mediaRecorder.addEventListener("stop", handleRecorderStop, { once: true });
+    mediaRecorder.addEventListener("error", handleRecorderError);
+    screenStream.getVideoTracks()[0]?.addEventListener("ended", stopScreenRecording, { once: true });
+
+    renderLiveRecordingPreview();
+    renderRecordingLiveState();
+    recordingDock.hidden = false;
+    startRecordingTimer();
+    mediaRecorder.start(1000);
+    startCaptionRecognition();
+    setRecorderButtonState("recording");
+    pasteHint.textContent = "Gravação iniciada.";
+    pasteHint.classList.add("flash");
+    resetPasteHint();
+  } catch (error) {
+    cleanupRecordingSession();
+    pasteHint.textContent = screenRecordingErrorMessage(error);
+    pasteHint.classList.add("flash");
+    resetPasteHint(5200);
+  }
+}
+
 // Chrome/Windows needs a fresh click to open the native share panel after the file is prepared.
 function showShareSheet(file) {
   preparedSharePayload = { files: [file], title: currentData?.title || "VideoDrop" };
@@ -466,6 +1075,8 @@ themeToggle?.addEventListener("click", () => {
 shareNowButton?.addEventListener("click", sharePreparedFile);
 shareSheetClose?.addEventListener("click", closeShareSheet);
 shareSheetCancel?.addEventListener("click", closeShareSheet);
+screenRecordButton?.addEventListener("click", startScreenRecording);
+recordingStopButton?.addEventListener("click", stopScreenRecording);
 shareSheet?.addEventListener("click", (event) => {
   if (event.target === shareSheet) closeShareSheet();
 });
@@ -487,5 +1098,14 @@ window.addEventListener("paste", (event) => {
   }, 2200);
 });
 
+window.addEventListener("beforeunload", () => {
+  clearRecordingObjectUrl();
+  clearCaptionObjectUrl();
+  stopStreamTracks(recordingStream);
+  stopStreamTracks(screenStream);
+  stopStreamTracks(microphoneStream);
+});
+
 setupTheme();
+setupScreenRecorderSupport();
 if (copyrightYear) copyrightYear.textContent = String(new Date().getFullYear());

@@ -11,15 +11,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
-from fastapi import APIRouter, BackgroundTasks, Query, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
 from . import downloads, extractor, thumbnails
-from .config import STATIC_DIR, logger
+from .config import MAX_RECORDING_UPLOAD_BYTES, STATIC_DIR, logger
 from .schemas import ProbeRequest
 from .security import validate_url
 
 router = APIRouter()
+
+
+def _is_local_client(request: Request) -> bool:
+    host = request.client.host if request.client else ""
+    return host == "testclient" or host == "localhost" or host == "::1" or host.startswith("127.")
 
 
 def _public_origin(request: Request) -> str:
@@ -149,3 +154,41 @@ async def download_video(
             samesite="lax",
         )
     return response
+
+
+@router.post("/api/recordings/whatsapp")
+async def convert_recording_for_whatsapp(request: Request, background_tasks: BackgroundTasks) -> FileResponse:
+    if not _is_local_client(request):
+        raise HTTPException(status_code=403, detail="Conversão de gravação disponível apenas localmente.")
+
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if content_type and content_type not in {"video/webm", "application/octet-stream"}:
+        raise HTTPException(status_code=415, detail="Envie uma gravação WebM.")
+
+    temp_dir = Path(tempfile.mkdtemp(prefix="videodrop-recording-"))
+    input_path = temp_dir / "gravacao.webm"
+    total_bytes = 0
+
+    try:
+        with input_path.open("wb") as output:
+            async for chunk in request.stream():
+                total_bytes += len(chunk)
+                if total_bytes > MAX_RECORDING_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail="Gravação grande demais para converter localmente.")
+                output.write(chunk)
+
+        if total_bytes == 0:
+            raise HTTPException(status_code=400, detail="Gravação vazia.")
+
+        file_path = await downloads.convert_recording_to_whatsapp_mp4(input_path)
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+
+    background_tasks.add_task(shutil.rmtree, temp_dir, True)
+    return FileResponse(
+        file_path,
+        media_type="video/mp4",
+        filename="videodrop-gravacao-whatsapp.mp4",
+        background=background_tasks,
+    )

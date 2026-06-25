@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>VideoDrop | Baixador de vídeos em MP4 e áudio MP3</title>
-    <meta name="description" content="Baixe vídeos em MP4 e extraia áudio MP3 de posts públicos do X, Instagram, Facebook e outras plataformas compatíveis. Escolha a resolução, veja o tamanho previsto e faça o download." />
+    <title>VideoDrop | Baixador e gravador de vídeos</title>
+    <meta name="description" content="Baixe vídeos em MP4, extraia áudio MP3 e grave sua tela localmente em WebM. Escolha resolução, capture janela, monitor ou aba e compartilhe pelo sistema." />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="application-name" content="VideoDrop" />
     <meta name="theme-color" content="#F6C945" />
@@ -15,16 +15,16 @@
     <meta property="og:locale" content="pt_BR" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="VideoDrop" />
-    <meta property="og:title" content="VideoDrop | Baixador de vídeos em MP4 e áudio MP3" />
-    <meta property="og:description" content="Cole a URL de um post público, escolha a resolução e baixe o vídeo em MP4 ou o áudio em MP3." />
+    <meta property="og:title" content="VideoDrop | Baixador e gravador de vídeos" />
+    <meta property="og:description" content="Cole uma URL para baixar ou grave tela, janela, aba ou monitor localmente em WebM." />
     <meta property="og:url" content="__CANONICAL_URL__" />
     <meta property="og:image" content="__OG_IMAGE_URL__" />
     <meta property="og:image:width" content="512" />
     <meta property="og:image:height" content="512" />
     <meta property="og:image:alt" content="Logo do VideoDrop" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="VideoDrop | Baixador de vídeos em MP4 e áudio MP3" />
-    <meta name="twitter:description" content="Cole a URL de um post público, escolha a resolução e baixe o vídeo em MP4 ou o áudio em MP3." />
+    <meta name="twitter:title" content="VideoDrop | Baixador e gravador de vídeos" />
+    <meta name="twitter:description" content="Cole uma URL para baixar ou grave tela, janela, aba ou monitor localmente em WebM." />
     <meta name="twitter:image" content="__OG_IMAGE_URL__" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -38,7 +38,7 @@
         "applicationCategory": "MultimediaApplication",
         "operatingSystem": "Web",
         "inLanguage": "pt-BR",
-        "description": "Baixador de vídeos em MP4 e extrator de áudio MP3 para posts públicos do X, Instagram, Facebook e outras plataformas compatíveis.",
+        "description": "Baixador de vídeos em MP4, extrator de áudio MP3 e gravador de tela local em WebM.",
         "image": "__OG_IMAGE_URL__",
         "offers": {
           "@type": "Offer",
@@ -55,7 +55,7 @@
         document.documentElement.dataset.theme = storedTheme || (prefersLight ? "light" : "dark");
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260619-share-ready-sheet" />
+    <link rel="stylesheet" href="/styles.css?v=20260625-screen-recorder" />
   </head>
   <body>
     <button class="theme-toggle" id="themeToggle" type="button" aria-label="Alternar tema" title="Alternar tema">
@@ -74,22 +74,50 @@
             <img src="/brand.png" alt="VideoDrop" />
           </div>
           <div>
-            <p class="eyebrow">VideoDrop</p>
-            <h1>Baixador de vídeos</h1>
+            <h1>VideoDrop</h1>
           </div>
         </div>
 
         <form class="search-panel" id="probeForm">
-          <label for="urlInput">URL do post</label>
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">Vídeos da internet</p>
+              <h2>Download Vídeo</h2>
+            </div>
+          </div>
           <div class="input-wrap">
-            <input id="urlInput" name="url" type="url" placeholder="Cole um link do X, Instagram, Facebook..." autocomplete="off" required />
+            <input id="urlInput" name="url" type="url" placeholder="Cole um link do X, Instagram, Facebook, YouTube..." autocomplete="off" required />
             <button class="primary-button" type="submit">
               <span>Analisar</span>
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
             </button>
           </div>
           <div class="paste-hint" id="pasteHint">Ctrl + V em qualquer lugar detecta URLs automaticamente</div>
         </form>
+
+        <section class="recorder-panel" id="recorderPanel" aria-labelledby="recorderTitle">
+          <div class="panel-header recorder-header">
+            <div>
+              <p class="eyebrow">Gravação local</p>
+              <h2 id="recorderTitle">Gravar tela</h2>
+            </div>
+            <button class="record-button" id="screenRecordButton" type="button">
+              <span>Gravar tela</span>
+            </button>
+          </div>
+          <div class="recorder-options" aria-label="Opções de áudio da gravação">
+            <label class="toggle-row" for="systemAudioToggle">
+              <input id="systemAudioToggle" type="checkbox" />
+              <span class="toggle-switch" aria-hidden="true"></span>
+              <span>Áudio do sistema</span>
+            </label>
+            <label class="toggle-row" for="microphoneToggle">
+              <input id="microphoneToggle" type="checkbox" />
+              <span class="toggle-switch" aria-hidden="true"></span>
+              <span>Microfone</span>
+            </label>
+          </div>
+          <p class="recorder-note" id="recorderSupportNote">O seletor de tela, janela, aba ou monitor é controlado pelo navegador.</p>
+        </section>
 
         <section class="results" id="results" aria-live="polite">
           <div class="empty-state">
@@ -113,6 +141,18 @@
         </div>
       </aside>
     </main>
+
+    <div class="recording-dock" id="recordingDock" hidden>
+      <div class="recording-dock-status">
+        <span class="recording-dot" aria-hidden="true"></span>
+        <span>Gravando</span>
+        <strong id="recordingTimer">00:00</strong>
+      </div>
+      <button class="stop-recording-button" id="recordingStopButton" type="button">
+        <span aria-hidden="true"></span>
+        Parar
+      </button>
+    </div>
 
     <footer class="site-footer">
       <div class="footer-brand">
@@ -157,6 +197,6 @@
       </article>
     </template>
 
-    <script src="/app.js?v=20260619-share-ready-sheet" type="module"></script>
+    <script src="/app.js?v=20260625-screen-recorder" type="module"></script>
   </body>
 </html>

@@ -44,6 +44,115 @@ def test_static_routes_and_seo(client):
     assert "<urlset" in sitemap.text
 
 
+def test_screen_recorder_ui_is_available_with_audio_toggles_off_by_default():
+    html = (app_module.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert 'id="screenRecordButton"' in html
+    assert "Gravar tela" in html
+    assert 'id="systemAudioToggle" type="checkbox"' in html
+    assert 'id="microphoneToggle" type="checkbox"' in html
+    assert 'id="systemAudioToggle" type="checkbox" checked' not in html
+    assert 'id="microphoneToggle" type="checkbox" checked' not in html
+    assert 'id="recordingDock" hidden' in html
+
+
+def test_screen_recorder_uses_browser_capture_and_share_apis():
+    app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "navigator.mediaDevices.getDisplayMedia(displayOptions)" in app_js
+    assert "navigator.mediaDevices.getUserMedia({ audio: true })" in app_js
+    assert "new MediaRecorder(recordingStream" in app_js
+    assert "MediaRecorder.isTypeSupported(type)" in app_js
+    assert "createMediaStreamDestination()" in app_js
+    assert "navigator.canShare(sharePayload)" in app_js
+    assert "navigator.share(preparedSharePayload)" in app_js
+    assert 'fetch("/api/recordings/whatsapp"' in app_js
+    assert "Convertendo gravação para MP4" in app_js
+    assert "Seu navegador não aceitou compartilhar esse WebM" not in app_js
+
+
+def test_screen_recorder_generates_srt_caption_download_when_microphone_is_used():
+    app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    recorder_helpers = app_js.split("// Screen recording flow.", 1)[1].split("// Chrome/Windows", 1)[0]
+
+    assert 'const CAPTION_LANGUAGE = "pt-BR";' in app_js
+    assert "window.SpeechRecognition || window.webkitSpeechRecognition" in recorder_helpers
+    assert "recognition.lang = CAPTION_LANGUAGE" in recorder_helpers
+    assert "recognition.continuous = true" in recorder_helpers
+    assert "recognition.interimResults = true" in recorder_helpers
+    assert "recognition.maxAlternatives = 1" in recorder_helpers
+    assert "captionsRequestedForRecording ? buildCaptionFile(file.name, durationSeconds) : null" in recorder_helpers
+    assert 'videoFileName.replace(/\\.webm$/i, ".srt")' in recorder_helpers
+    assert 'type: "application/x-subrip;charset=utf-8"' in recorder_helpers
+    assert "Baixar legenda" in recorder_helpers
+    assert "Legendas indisponíveis neste navegador." in recorder_helpers
+
+
+def test_security_headers_allow_screen_capture_and_microphone():
+    security_py = (app_module.STATIC_DIR.parent / "videodrop" / "security.py").read_text(encoding="utf-8")
+
+    assert "microphone=(self)" in security_py
+    assert "display-capture=(self)" in security_py
+
+
+def test_desktop_launcher_has_tray_mode_browser_app_without_hosts_alias():
+    desktop_py = (app_module.STATIC_DIR.parent / "videodrop" / "desktop.py").read_text(encoding="utf-8")
+    config_py = (app_module.STATIC_DIR.parent / "videodrop" / "config.py").read_text(encoding="utf-8")
+
+    assert 'MenuItem("Abrir VideoDrop"' in desktop_py
+    assert 'MenuItem("Abrir no navegador"' in desktop_py
+    assert 'MenuItem("Encerrar"' in desktop_py
+    assert 'f"--app={url}"' in desktop_py
+    assert '"--start-maximized"' in desktop_py
+    assert 'return trusted_local_url(self.port)' in desktop_py
+    assert "--install-hosts" not in desktop_py
+    assert "--uninstall-hosts" not in desktop_py
+    assert "hosts" not in desktop_py.lower()
+    assert "CreateMutexW" in desktop_py
+    assert "ensure_standard_streams()" in desktop_py
+    assert "def isatty(self) -> bool:" in desktop_py
+    assert "logging.NullHandler()" in desktop_py
+    assert "log_config=None" in desktop_py
+    assert "sys._MEIPASS" in config_py
+
+
+def test_screen_recorder_explains_insecure_local_alias_limitation():
+    app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "window.isSecureContext" in app_js
+    assert "http://127.0.0.1:8000" in app_js
+
+
+def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
+    root = app_module.STATIC_DIR.parent
+    requirements = (root / "requirements-desktop.txt").read_text(encoding="utf-8")
+    build_script = (root / "scripts" / "build_windows.ps1").read_text(encoding="utf-8")
+    icon_script = (root / "scripts" / "make_windows_icon.py").read_text(encoding="utf-8")
+    installer = (root / "installer" / "videodrop.iss").read_text(encoding="utf-8")
+
+    assert "pystray" in requirements
+    assert "pyinstaller" in requirements
+    assert "Pillow" in requirements
+    assert "videodrop.ico" in build_script
+    assert "--windowed" in build_script
+    assert "--collect-all\", \"yt_dlp" in build_script
+    assert "icon-512.png" in icon_script
+    assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
+    assert "Name: \"{userstartup}\\VideoDrop\"" in installer
+    assert "PrivilegesRequired=lowest" in installer
+    assert "--install-hosts" not in installer
+    assert "hosts" not in installer.lower()
+
+
+def test_share_sheet_button_icon_keeps_compact_layout():
+    styles = (app_module.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert ".share-sheet-actions .primary-button svg" in styles
+    assert "width: 22px" in styles
+    assert "height: 22px" in styles
+    assert "white-space: nowrap" in styles
+
+
 def test_build_format_options_includes_mp3(monkeypatch):
     monkeypatch.setattr(extractor, "_ffmpeg_location", lambda: "ffmpeg")
     info = {
@@ -146,6 +255,26 @@ def test_download_mp4_sets_video_media_type(client, monkeypatch):
     response = client.get(
         "/api/download",
         params={"url": "https://example.com/video", "format_id": "720"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("video/mp4")
+    assert response.content == b"fake mp4"
+
+
+def test_recording_whatsapp_endpoint_converts_local_webm_to_mp4(client, monkeypatch):
+    async def fake_convert(file_path: Path):
+        assert file_path.read_bytes() == b"fake webm"
+        output_path = file_path.with_name("gravacao-whatsapp.mp4")
+        output_path.write_bytes(b"fake mp4")
+        return output_path
+
+    monkeypatch.setattr(downloads, "convert_recording_to_whatsapp_mp4", fake_convert)
+
+    response = client.post(
+        "/api/recordings/whatsapp",
+        content=b"fake webm",
+        headers={"content-type": "video/webm"},
     )
 
     assert response.status_code == 200

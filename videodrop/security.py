@@ -22,7 +22,7 @@ def add_security_headers(response: Response, request: Request) -> Response:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(self), display-capture=(self), geolocation=(), payment=()"
     response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
@@ -124,4 +124,3 @@ def validate_remote_media_url(url: str, max_length: int = MAX_URL_LENGTH) -> str
 def validate_url(url: str) -> str:
     """Validate the primary post URL accepted by the public API."""
     return validate_remote_media_url(url, MAX_URL_LENGTH)
-

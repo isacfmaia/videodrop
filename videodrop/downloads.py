@@ -203,3 +203,14 @@ async def download_to_temp(url: str, format_id: str, temp_dir: Path) -> Path:
         if acquired:
             DOWNLOAD_SEMAPHORE.release()
 
+
+async def convert_recording_to_whatsapp_mp4(file_path: Path) -> Path:
+    """Convert a local browser recording to an MP4 accepted by native share targets."""
+    acquired = False
+    try:
+        await DOWNLOAD_SEMAPHORE.acquire()
+        acquired = True
+        return await asyncio.to_thread(_make_whatsapp_compatible_mp4, file_path)
+    finally:
+        if acquired:
+            DOWNLOAD_SEMAPHORE.release()

@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,14 @@ except Exception:  # pragma: no cover - optional runtime helper
     imageio_ffmpeg = None
 
 
-ROOT = Path(__file__).resolve().parent.parent
+def _runtime_root() -> Path:
+    """Return the project root in source runs or the PyInstaller bundle root."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent.parent
+
+
+ROOT = _runtime_root()
 STATIC_DIR = ROOT / "static"
 
 logger = logging.getLogger("uvicorn.error")
@@ -37,6 +45,7 @@ PROBE_RATE_LIMIT = int(os.getenv("PROBE_RATE_LIMIT", "12"))
 DOWNLOAD_RATE_LIMIT = int(os.getenv("DOWNLOAD_RATE_LIMIT", "6"))
 THUMBNAIL_RATE_LIMIT = int(os.getenv("THUMBNAIL_RATE_LIMIT", "60"))
 THUMBNAIL_TTL_SECONDS = int(os.getenv("THUMBNAIL_TTL_SECONDS", "900"))
+MAX_RECORDING_UPLOAD_BYTES = int(os.getenv("MAX_RECORDING_UPLOAD_BYTES", str(1024 * 1024 * 1024)))
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "0") == "1"
 SECURITY_HEADERS_ENABLED = os.getenv("SECURITY_HEADERS_ENABLED", "0") == "1"
 
@@ -73,4 +82,3 @@ def _base_ydl_opts() -> dict[str, Any]:
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
     return opts
-
