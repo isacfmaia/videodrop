@@ -130,6 +130,12 @@ def test_desktop_launcher_has_tray_mode_browser_app_without_hosts_alias():
     assert 'MenuItem("Abrir VideoDrop"' in desktop_py
     assert 'MenuItem("Abrir no navegador"' in desktop_py
     assert 'MenuItem("Encerrar"' in desktop_py
+    assert "focus_or_open_app_window" in desktop_py
+    assert "activate_existing_instance()" in desktop_py
+    assert "notify_existing_instance(state)" in desktop_py
+    assert 'urljoin(url, "/api/desktop/open")' in desktop_py
+    assert "SetForegroundWindow" in desktop_py
+    assert "launch_browser_app(existing_url)" not in desktop_py
     assert 'f"--app={url}"' in desktop_py
     assert '"--start-maximized"' in desktop_py
     assert 'return trusted_local_url(self.port)' in desktop_py
@@ -142,6 +148,20 @@ def test_desktop_launcher_has_tray_mode_browser_app_without_hosts_alias():
     assert "logging.NullHandler()" in desktop_py
     assert "log_config=None" in desktop_py
     assert "sys._MEIPASS" in config_py
+
+
+def test_desktop_open_endpoint_invokes_registered_callback(client):
+    calls = []
+    app_module.app.state.desktop_open_callback = lambda: calls.append("open")
+
+    try:
+        response = client.post("/api/desktop/open")
+    finally:
+        app_module.app.state.desktop_open_callback = None
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert calls == ["open"]
 
 
 def test_screen_recorder_explains_insecure_local_alias_limitation():
@@ -168,6 +188,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
+    assert '#define MyAppVersion "1.0.2"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 

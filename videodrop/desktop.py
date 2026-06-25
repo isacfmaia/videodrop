@@ -13,9 +13,12 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
 from pathlib import Path
 from typing import Sequence
+from urllib.parse import urljoin
 
 import uvicorn
 
@@ -27,6 +30,8 @@ DEFAULT_PORT = int(os.getenv("VIDEODROP_DESKTOP_PORT", "8000"))
 HOST = "127.0.0.1"
 MUTEX_NAME = "Local\\VideoDropDesktop"
 ERROR_ALREADY_EXISTS = 183
+SW_SHOW = 5
+SW_RESTORE = 9
 
 _mutex_handle: int | None = None
 
@@ -80,18 +85,23 @@ def runtime_state_path() -> Path:
     return app_data_dir() / "runtime.json"
 
 
-def write_runtime_state(url: str, port: int) -> None:
+def write_runtime_state(url: str, port: int, browser_pid: int | None = None) -> None:
     runtime_state_path().write_text(
-        json.dumps({"url": url, "port": port}, ensure_ascii=False, indent=2),
+        json.dumps({"url": url, "port": port, "browser_pid": browser_pid}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
-def read_runtime_url() -> str | None:
+def read_runtime_state() -> dict[str, object]:
     try:
         data = json.loads(runtime_state_path().read_text(encoding="utf-8"))
     except Exception:
-        return None
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def read_runtime_url() -> str | None:
+    data = read_runtime_state()
     url = data.get("url")
     return url if isinstance(url, str) and url.startswith("http") else None
 
@@ -117,6 +127,105 @@ def acquire_single_instance() -> bool:
         return True
     _mutex_handle = ctypes.windll.kernel32.CreateMutexW(None, False, MUTEX_NAME)
     return ctypes.windll.kernel32.GetLastError() != ERROR_ALREADY_EXISTS
+
+
+def _window_title(hwnd: int) -> str:
+    if not is_windows():
+        return ""
+    user32 = ctypes.windll.user32
+    length = user32.GetWindowTextLengthW(hwnd)
+    if length <= 0:
+        return ""
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(hwnd, buffer, length + 1)
+    return buffer.value
+
+
+def _focus_window(hwnd: int) -> bool:
+    if not is_windows() or not hwnd:
+        return False
+    user32 = ctypes.windll.user32
+    if user32.IsIconic(hwnd):
+        user32.ShowWindow(hwnd, SW_RESTORE)
+    else:
+        user32.ShowWindow(hwnd, SW_SHOW)
+    return bool(user32.SetForegroundWindow(hwnd))
+
+
+def _find_visible_window(predicate) -> int | None:
+    if not is_windows():
+        return None
+
+    user32 = ctypes.windll.user32
+    matches: list[int] = []
+    enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def enum_proc(hwnd: int, _lparam: int) -> bool:
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        if predicate(hwnd):
+            matches.append(hwnd)
+            return False
+        return True
+
+    user32.EnumWindows(enum_proc_type(enum_proc), 0)
+    return matches[0] if matches else None
+
+
+def focus_window_for_pid(pid: int | None) -> bool:
+    if not is_windows() or not pid:
+        return False
+
+    user32 = ctypes.windll.user32
+
+    def pid_matches(hwnd: int) -> bool:
+        window_pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
+        return window_pid.value == pid and bool(_window_title(hwnd))
+
+    hwnd = _find_visible_window(pid_matches)
+    return _focus_window(hwnd) if hwnd else False
+
+
+def focus_videodrop_window() -> bool:
+    def title_matches(hwnd: int) -> bool:
+        return APP_NAME.lower() in _window_title(hwnd).lower()
+
+    hwnd = _find_visible_window(title_matches)
+    return _focus_window(hwnd) if hwnd else False
+
+
+def focus_existing_app_window(state: dict[str, object] | None = None) -> bool:
+    state = state or read_runtime_state()
+    browser_pid = state.get("browser_pid")
+    pid = browser_pid if isinstance(browser_pid, int) else None
+    return focus_window_for_pid(pid) or focus_videodrop_window()
+
+
+def notify_existing_instance(state: dict[str, object]) -> bool:
+    url = state.get("url")
+    if not isinstance(url, str) or not url.startswith("http"):
+        return False
+
+    endpoint = urljoin(url, "/api/desktop/open")
+    request = urllib.request.Request(endpoint, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=0.8) as response:
+            return 200 <= response.status < 300
+    except (OSError, urllib.error.URLError):
+        return False
+
+
+def activate_existing_instance(timeout_seconds: float = 6.0) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        state = read_runtime_state()
+        if state and (notify_existing_instance(state) or focus_existing_app_window(state)):
+            return True
+        if focus_videodrop_window():
+            return True
+        time.sleep(0.2)
+    return False
 
 
 def trusted_local_url(port: int) -> str:
@@ -188,8 +297,10 @@ class DesktopRuntime:
         return trusted_local_url(self.port)
 
     def start_server(self) -> None:
+        app = create_app()
+        app.state.desktop_open_callback = self.focus_or_open_app_window
         config = uvicorn.Config(
-            create_app(),
+            app,
             host=HOST,
             port=self.port,
             log_level="warning",
@@ -214,6 +325,12 @@ class DesktopRuntime:
 
     def open_app_window(self) -> None:
         self.browser_process = launch_browser_app(self.url)
+        write_runtime_state(self.url, self.port, self.browser_process.pid if self.browser_process else None)
+
+    def focus_or_open_app_window(self) -> None:
+        if focus_existing_app_window({"url": self.url, "port": self.port, "browser_pid": self.browser_process.pid if self.browser_process else None}):
+            return
+        self.open_app_window()
 
     def open_in_browser(self) -> None:
         webbrowser.open(self.url)
@@ -235,7 +352,7 @@ class DesktopRuntime:
             self.tray_image(),
             APP_NAME,
             menu=Menu(
-                MenuItem("Abrir VideoDrop", lambda _icon, _item: self.open_app_window(), default=True),
+                MenuItem("Abrir VideoDrop", lambda _icon, _item: self.focus_or_open_app_window(), default=True),
                 MenuItem("Abrir no navegador", lambda _icon, _item: self.open_in_browser()),
                 MenuItem("Encerrar", lambda _icon, _item: self.stop()),
             ),
@@ -267,7 +384,7 @@ class DesktopRuntime:
         self.start_server()
         self.start_tray()
         if open_window:
-            self.open_app_window()
+            self.focus_or_open_app_window()
 
         while not self.stopping.wait(0.25):
             pass
@@ -277,9 +394,7 @@ class DesktopRuntime:
 def run_desktop(preferred_port: int, open_window: bool) -> int:
     setup_logging()
     if not acquire_single_instance():
-        existing_url = read_runtime_url()
-        if existing_url:
-            launch_browser_app(existing_url)
+        activate_existing_instance()
         return 0
 
     runtime = DesktopRuntime(preferred_port=preferred_port)

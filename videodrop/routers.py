@@ -100,6 +100,19 @@ async def chrome_devtools_probe() -> Response:
     return Response(status_code=204)
 
 
+@router.post("/api/desktop/open", include_in_schema=False)
+async def desktop_open(request: Request) -> dict[str, bool]:
+    if not _is_local_client(request):
+        raise HTTPException(status_code=403, detail="Controle desktop disponível apenas localmente.")
+
+    callback = getattr(request.app.state, "desktop_open_callback", None)
+    if not callable(callback):
+        return {"ok": False}
+
+    await asyncio.to_thread(callback)
+    return {"ok": True}
+
+
 @router.post("/api/probe")
 async def probe_video(payload: ProbeRequest) -> dict:
     url = validate_url(payload.url)
