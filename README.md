@@ -120,10 +120,10 @@ O backend segue um **modular monolith enxuto**: o projeto continua simples de ex
 
 ### Windows
 
-Quando houver uma versão publicada, baixe o instalador em:
+Baixe a versão mais recente do instalador em:
 
 ```text
-https://github.com/isacfmaia/videodrop/releases
+https://github.com/isacfmaia/videodrop/releases/latest
 ```
 
 O instalador gerado pelo build local fica em:
