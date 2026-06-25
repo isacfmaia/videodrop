@@ -64,12 +64,21 @@ A interface foi pensada para ser direta: colou a URL, o app analisa, mostra as o
 ## 📁 Estrutura
 
 ```text
-videodownload/
+videodrop/
 ├── app.py
 ├── requirements.txt
 ├── requirements-dev.txt
 ├── README.md
 ├── LICENSE
+├── videodrop/
+│   ├── main.py
+│   ├── config.py
+│   ├── schemas.py
+│   ├── routers.py
+│   ├── security.py
+│   ├── thumbnails.py
+│   ├── extractor.py
+│   └── downloads.py
 ├── tests/
 │   └── test_app.py
 └── static/
@@ -86,6 +95,8 @@ videodownload/
     ├── site.webmanifest
     └── videodrop_loader_animado.svg
 ```
+
+O backend segue um **modular monolith enxuto**: o projeto continua simples de executar com `uvicorn app:app`, mas a lógica fica separada por responsabilidade técnica.
 
 ## ⚙️ Rodando localmente
 
@@ -120,7 +131,7 @@ Rode a suíte:
 Checagens rápidas de sintaxe:
 
 ```powershell
-.\.venv\Scripts\python.exe -m py_compile app.py
+.\.venv\Scripts\python.exe -m compileall -q app.py videodrop
 node --check static\app.js
 ```
 

@@ -1,3 +1,4 @@
+// DOM references and shared UI state.
 const form = document.querySelector("#probeForm");
 const input = document.querySelector("#urlInput");
 const results = document.querySelector("#results");
@@ -16,6 +17,9 @@ const shareNowButton = document.querySelector("#shareNowButton");
 const shareSheetClose = document.querySelector("#shareSheetClose");
 const shareSheetCancel = document.querySelector("#shareSheetCancel");
 const ANALYZE_TIMEOUT_MS = 120000;
+const DOWNLOAD_READY_TIMEOUT_MS = 30 * 60 * 1000;
+const DOWNLOAD_READY_POLL_MS = 400;
+const DOWNLOAD_READY_COOKIE_PREFIX = "videodrop_download_";
 
 let currentUrl = "";
 let currentData = null;
@@ -23,6 +27,7 @@ let activeController = null;
 let analyzeRunId = 0;
 let preparedSharePayload = null;
 
+// Theme handling.
 function setTheme(theme, persist = true) {
   document.documentElement.dataset.theme = theme;
   themeToggle?.setAttribute("aria-label", theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro");
@@ -43,6 +48,7 @@ function setupTheme() {
   }
 }
 
+// Small formatting and timing helpers used by multiple UI states.
 function isProbablyUrl(value) {
   try {
     const url = new URL(value.trim());
@@ -85,6 +91,7 @@ function setAnalyzingState(isAnalyzing) {
   input.setAttribute("aria-busy", String(isAnalyzing));
 }
 
+// Preview and results rendering.
 function setLoading(url) {
   statusPill.textContent = "Analisando link";
   previewTitle.textContent = "Buscando o vídeo...";
@@ -189,8 +196,10 @@ function renderPreview(data) {
   }
 }
 
-function downloadUrl(formatId) {
+// Format actions and download/share helpers.
+function downloadUrl(formatId, downloadToken = "") {
   const params = new URLSearchParams({ url: currentUrl, format_id: formatId });
+  if (downloadToken) params.set("download_token", downloadToken);
   return `/api/download?${params.toString()}`;
 }
 
@@ -213,6 +222,71 @@ function resetPasteHint(delay = 1200) {
   }, delay);
 }
 
+function createDownloadToken() {
+  const tokenSource = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return tokenSource.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 48);
+}
+
+function hasCookie(name) {
+  return document.cookie.split("; ").some((cookie) => cookie.startsWith(`${name}=`));
+}
+
+function clearCookie(name) {
+  document.cookie = `${name}=; Max-Age=0; path=/`;
+}
+
+function waitForDownloadReady(cookieName) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const intervalId = window.setInterval(() => {
+      if (hasCookie(cookieName)) {
+        window.clearInterval(intervalId);
+        clearCookie(cookieName);
+        resolve(true);
+        return;
+      }
+
+      if (Date.now() - startedAt > DOWNLOAD_READY_TIMEOUT_MS) {
+        window.clearInterval(intervalId);
+        resolve(false);
+      }
+    }, DOWNLOAD_READY_POLL_MS);
+  });
+}
+
+function setDownloadState(triggerLink, isLoading) {
+  triggerLink.dataset.loading = isLoading ? "1" : "0";
+  triggerLink.classList.toggle("is-loading", isLoading);
+  triggerLink.setAttribute("aria-busy", String(isLoading));
+  triggerLink.textContent = isLoading ? "Preparando..." : (triggerLink.dataset.originalText || "Baixar");
+}
+
+async function prepareDownload(format, triggerLink, event) {
+  if (triggerLink.dataset.loading === "1") {
+    event.preventDefault();
+    return;
+  }
+
+  const downloadToken = createDownloadToken();
+  const cookieName = `${DOWNLOAD_READY_COOKIE_PREFIX}${downloadToken}`;
+  triggerLink.dataset.originalText = triggerLink.textContent;
+  triggerLink.href = downloadUrl(format.format_id, downloadToken);
+  setDownloadState(triggerLink, true);
+  pasteHint.textContent = "Preparando download...";
+  pasteHint.classList.add("flash");
+
+  const isReady = await waitForDownloadReady(cookieName);
+  setDownloadState(triggerLink, false);
+  pasteHint.textContent = isReady
+    ? "Download pronto. Confira a barra de downloads do navegador."
+    : "O download ainda pode estar em andamento no navegador.";
+  pasteHint.classList.add("flash");
+  resetPasteHint(isReady ? 2200 : 5200);
+}
+
+// Chrome/Windows needs a fresh click to open the native share panel after the file is prepared.
 function showShareSheet(file) {
   preparedSharePayload = { files: [file], title: currentData?.title || "VideoDrop" };
   if (shareSheetMeta) {
@@ -253,6 +327,7 @@ async function sharePreparedFile() {
   }
 }
 
+// The first click prepares the file; the second click opens the native OS share UI.
 async function shareToWhatsApp(format, triggerButton) {
   const url = downloadUrl(format.format_id);
   const fileName = shareFileName(format);
@@ -325,11 +400,13 @@ function renderFormats(data) {
     download.href = downloadUrl(format.format_id);
     download.setAttribute("download", "");
     download.textContent = "Baixar";
+    download.addEventListener("click", (event) => prepareDownload(format, download, event));
     share.addEventListener("click", () => shareToWhatsApp(format, share));
     results.appendChild(node);
   });
 }
 
+// URL analysis flow.
 async function analyze(url) {
   const nextUrl = url.trim();
   if (primaryButton.disabled && nextUrl === currentUrl) return;
@@ -380,6 +457,7 @@ form.addEventListener("submit", (event) => {
   if (isProbablyUrl(value)) analyze(value);
 });
 
+// Event wiring.
 themeToggle?.addEventListener("click", () => {
   const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   setTheme(nextTheme);

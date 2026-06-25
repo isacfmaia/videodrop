@@ -1,0 +1,151 @@
+"""HTTP routes for the VideoDrop web UI and public API."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import shutil
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+
+from fastapi import APIRouter, BackgroundTasks, Query, Request
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
+
+from . import downloads, extractor, thumbnails
+from .config import STATIC_DIR, logger
+from .schemas import ProbeRequest
+from .security import validate_url
+
+router = APIRouter()
+
+
+def _public_origin(request: Request) -> str:
+    configured_url = os.getenv("PUBLIC_BASE_URL", "").strip()
+    if configured_url:
+        parsed = urlparse(configured_url)
+        if parsed.scheme in {"http", "https"} and parsed.netloc:
+            return configured_url.rstrip("/")
+
+    base_url = str(request.base_url).rstrip("/")
+    return base_url
+
+
+def _absolute_url(request: Request, path: str) -> str:
+    return urljoin(f"{_public_origin(request)}/", path.lstrip("/"))
+
+
+def _render_index(request: Request) -> str:
+    """Inject deployment-specific SEO URLs into the static HTML shell."""
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    canonical_url = _absolute_url(request, "/")
+    image_url = _absolute_url(request, "/brand.png")
+    return (
+        html.replace("__CANONICAL_URL__", canonical_url)
+        .replace("__OG_IMAGE_URL__", image_url)
+        .replace("__SITE_URL__", _public_origin(request))
+    )
+
+
+@router.get("/", response_class=HTMLResponse, include_in_schema=False)
+async def index(request: Request) -> HTMLResponse:
+    return HTMLResponse(_render_index(request))
+
+
+@router.get("/index.html", response_class=HTMLResponse, include_in_schema=False)
+async def index_html(request: Request) -> HTMLResponse:
+    return HTMLResponse(_render_index(request))
+
+
+@router.get("/robots.txt", response_class=PlainTextResponse, include_in_schema=False)
+async def robots_txt(request: Request) -> PlainTextResponse:
+    body = "\n".join(
+        [
+            "User-agent: *",
+            "Allow: /",
+            "Disallow: /api/",
+            f"Sitemap: {_absolute_url(request, '/sitemap.xml')}",
+            "",
+        ]
+    )
+    return PlainTextResponse(body)
+
+
+@router.get("/sitemap.xml", include_in_schema=False)
+async def sitemap_xml(request: Request) -> Response:
+    last_modified = (STATIC_DIR / "index.html").stat().st_mtime
+    lastmod = datetime.fromtimestamp(last_modified, tz=timezone.utc).date().isoformat()
+    body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>{_absolute_url(request, "/")}</loc>
+    <lastmod>{lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>
+"""
+    return Response(body, media_type="application/xml")
+
+
+@router.get("/.well-known/appspecific/com.chrome.devtools.json", include_in_schema=False)
+async def chrome_devtools_probe() -> Response:
+    return Response(status_code=204)
+
+
+@router.post("/api/probe")
+async def probe_video(payload: ProbeRequest) -> dict:
+    url = validate_url(payload.url)
+    logger.info("POST /api/probe recebido: %s", url)
+    return await extractor.probe_url(url)
+
+
+@router.get("/api/thumbnail/{token}", include_in_schema=False)
+async def thumbnail(token: str) -> Response:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", token):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail="Token inválido.")
+    try:
+        body, content_type = await asyncio.to_thread(thumbnails.fetch_thumbnail_sync, token)
+    except Exception:
+        logger.exception("Falha carregando miniatura: token=%s", token)
+        raise
+    return Response(body, media_type=content_type)
+
+
+@router.get("/api/download")
+async def download_video(
+    background_tasks: BackgroundTasks,
+    url: str = Query(...),
+    format_id: str = Query(...),
+    download_token: str | None = Query(default=None),
+) -> FileResponse:
+    valid_url = validate_url(url)
+    temp_dir = Path(tempfile.mkdtemp(prefix="videodrop-"))
+
+    try:
+        file_path = await downloads.download_to_temp(valid_url, format_id, temp_dir)
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+
+    background_tasks.add_task(shutil.rmtree, temp_dir, True)
+    media_type = "audio/mpeg" if file_path.suffix.lower() == ".mp3" else "video/mp4"
+    response = FileResponse(
+        file_path,
+        media_type=media_type,
+        filename=file_path.name,
+        background=background_tasks,
+    )
+    if download_token and re.fullmatch(r"[A-Za-z0-9_-]{8,80}", download_token):
+        response.set_cookie(
+            key=f"videodrop_download_{download_token}",
+            value="ready",
+            max_age=60,
+            path="/",
+            samesite="lax",
+        )
+    return response

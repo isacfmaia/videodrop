@@ -1,0 +1,2 @@
+"""VideoDrop application package."""
+
