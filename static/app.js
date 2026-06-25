@@ -842,7 +842,7 @@ function renderRecordingResult(file, objectUrl, durationSeconds, captionFile = n
         <p>${formatClock(durationSeconds)} - ${formatBytes(file.size)} - WebM local${captionFile ? " - legenda SRT" : ""}</p>
       </div>
       <div class="format-actions">
-        <button class="ghost-button recording-share-button" type="button">WhatsApp</button>
+        <button class="ghost-button recording-share-button" type="button">Compartilhar</button>
         ${captionAction}
         <a class="download-button recording-download-button">Baixar</a>
       </div>

@@ -54,6 +54,8 @@ def test_screen_recorder_ui_is_available_with_audio_toggles_off_by_default():
     assert 'id="systemAudioToggle" type="checkbox" checked' not in html
     assert 'id="microphoneToggle" type="checkbox" checked' not in html
     assert 'id="recordingDock" hidden' in html
+    assert '<button class="ghost-button share-button" type="button">Compartilhar</button>' in html
+    assert '<button class="ghost-button share-button" type="button">WhatsApp</button>' not in html
 
 
 def test_screen_recorder_uses_browser_capture_and_share_apis():
@@ -86,6 +88,8 @@ def test_screen_recorder_generates_srt_caption_download_when_microphone_is_used(
     assert 'type: "application/x-subrip;charset=utf-8"' in recorder_helpers
     assert "Baixar legenda" in recorder_helpers
     assert "Legendas indisponíveis neste navegador." in recorder_helpers
+    assert '<button class="ghost-button recording-share-button" type="button">Compartilhar</button>' in recorder_helpers
+    assert '<button class="ghost-button recording-share-button" type="button">WhatsApp</button>' not in recorder_helpers
 
 
 def test_microphone_capture_failure_keeps_screen_recording_available():
@@ -190,7 +194,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.3"' in installer
+    assert '#define MyAppVersion "1.0.4"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
