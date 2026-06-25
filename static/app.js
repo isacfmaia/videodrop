@@ -33,6 +33,7 @@ const RECORDER_MIME_TYPES = [
   "video/webm"
 ];
 const CAPTION_LANGUAGE = "pt-BR";
+const MICROPHONE_REQUEST_TIMEOUT_MS = 10000;
 
 let currentUrl = "";
 let currentData = null;
@@ -51,6 +52,7 @@ let recordingStartedAt = 0;
 let recordingTimerId = 0;
 let recordingStopping = false;
 let recordingMetaSuffix = "WebM local";
+let recordingWarningMessage = "";
 let captionsRequestedForRecording = false;
 let captionsSupportedForRecording = false;
 let captionRecognition = null;
@@ -172,6 +174,14 @@ function setError(message) {
   statusPill.textContent = "Não foi possível carregar";
   previewTitle.textContent = "Oops, não deu certo";
   previewMeta.textContent = "Tente outro link público ou confira se o conteúdo exige login.";
+  renderPreviewError();
+  results.innerHTML = `<div class="error-state"><p>${message}</p></div>`;
+}
+
+function setRecorderStartError(message) {
+  statusPill.textContent = "Gravação não iniciada";
+  previewTitle.textContent = "Não consegui gravar";
+  previewMeta.textContent = "Confira as permissões do navegador e tente novamente.";
   renderPreviewError();
   results.innerHTML = `<div class="error-state"><p>${message}</p></div>`;
 }
@@ -393,6 +403,17 @@ function clearCaptionObjectUrl() {
   captionObjectUrl = "";
 }
 
+function clearRecordingResultState() {
+  clearRecordingObjectUrl();
+  clearCaptionObjectUrl();
+  captionSegments = [];
+  captionInterimText = "";
+  captionLastSegmentEnd = 0;
+  captionsRequestedForRecording = false;
+  captionsSupportedForRecording = false;
+  captionStatusMessage = "";
+}
+
 function stopStreamTracks(stream) {
   stream?.getTracks().forEach((track) => track.stop());
 }
@@ -595,7 +616,15 @@ function cleanupRecordingSession() {
   microphoneStream = null;
   mediaRecorder = null;
   recordingStopping = false;
+  recordingWarningMessage = "";
   setRecorderButtonState(screenRecordingSupported() ? "idle" : "unsupported");
+}
+
+function addRecordingWarning(message) {
+  if (!message) return;
+  recordingWarningMessage = recordingWarningMessage
+    ? `${recordingWarningMessage} ${message}`
+    : message;
 }
 
 function renderLiveRecordingPreview() {
@@ -609,15 +638,32 @@ function renderLiveRecordingPreview() {
   updateRecordingTimer();
 }
 
+function renderRecordingStartingState() {
+  statusPill.textContent = "Selecionando fonte";
+  previewTitle.textContent = "Escolha o que gravar";
+  previewMeta.textContent = "A gravação começa depois que você confirmar no seletor do navegador.";
+  renderThumbnailLoading("Abrindo seletor");
+  results.innerHTML = `
+    <div class="loading-state recording-live-state">
+      <img class="loading-brand" src="/videodrop_loader_animado.svg" alt="" aria-hidden="true" />
+      <p>Selecione uma tela, janela ou aba no painel do navegador.</p>
+    </div>
+  `;
+}
+
 function renderRecordingLiveState() {
   const captionStatus = captionsRequestedForRecording
     ? `<p class="caption-status" id="captionStatus">${captionStatusMessage}</p>`
+    : "";
+  const warningStatus = recordingWarningMessage
+    ? `<p class="caption-status recording-warning">${recordingWarningMessage}</p>`
     : "";
 
   results.innerHTML = `
     <div class="loading-state recording-live-state">
       <img class="loading-brand" src="/videodrop_loader_animado.svg" alt="" aria-hidden="true" />
       <p>Gravação em andamento. Use o controle flutuante para parar.</p>
+      ${warningStatus}
       ${captionStatus}
     </div>
   `;
@@ -648,6 +694,7 @@ function buildRecordingStream(displayStream, micStream, wantsSystemAudio) {
   if (displayAudioTracks.length) {
     audioStreams.push(new MediaStream(displayAudioTracks));
   } else if (wantsSystemAudio) {
+    addRecordingWarning("O navegador não entregou áudio do sistema para essa fonte.");
     pasteHint.textContent = "O navegador não entregou áudio do sistema para essa fonte.";
     pasteHint.classList.add("flash");
     resetPasteHint(4200);
@@ -681,6 +728,54 @@ function screenRecordingErrorMessage(error) {
   if (error.name === "NotReadableError") return "O sistema bloqueou a captura da fonte escolhida.";
   if (error.name === "TypeError") return "Este navegador não aceitou as opções de gravação solicitadas.";
   return "Não consegui iniciar a gravação de tela agora.";
+}
+
+function microphoneCaptureErrorMessage(error) {
+  if (error.name === "NotAllowedError") {
+    return "Microfone bloqueado pelo navegador ou pelo Windows. A gravação seguirá sem microfone.";
+  }
+  if (error.name === "NotFoundError") {
+    return "Nenhum microfone foi encontrado. A gravação seguirá sem microfone.";
+  }
+  if (error.name === "NotReadableError") {
+    return "O microfone está em uso ou bloqueado pelo sistema. A gravação seguirá sem microfone.";
+  }
+  return "Não consegui ativar o microfone. A gravação seguirá sem microfone.";
+}
+
+async function requestOptionalMicrophoneStream() {
+  const microphoneRequest = navigator.mediaDevices.getUserMedia({ audio: true });
+  let timeoutId = 0;
+
+  try {
+    const stream = await Promise.race([
+      microphoneRequest,
+      new Promise((resolve) => {
+        timeoutId = window.setTimeout(() => resolve(null), MICROPHONE_REQUEST_TIMEOUT_MS);
+      })
+    ]);
+
+    if (!stream) {
+      const message = "O navegador não respondeu à permissão do microfone. A gravação seguirá sem microfone.";
+      addRecordingWarning(message);
+      pasteHint.textContent = message;
+      pasteHint.classList.add("flash");
+      resetPasteHint(6500);
+      microphoneRequest.then(stopStreamTracks).catch(() => {});
+      return null;
+    }
+
+    return stream;
+  } catch (error) {
+    const message = microphoneCaptureErrorMessage(error);
+    addRecordingWarning(message);
+    pasteHint.textContent = message;
+    pasteHint.classList.add("flash");
+    resetPasteHint(6500);
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 function stopScreenRecording() {
@@ -806,7 +901,7 @@ async function shareRecordedFile(file, triggerButton) {
       throw new Error("file share unavailable");
     }
 
-    showShareSheet(mp4File);
+    showShareSheet(mp4File, "VideoDrop");
     pasteHint.textContent = "MP4 pronto para compartilhar.";
     pasteHint.classList.add("flash");
     resetPasteHint();
@@ -839,9 +934,14 @@ async function startScreenRecording() {
   recordingMetaSuffix = audioLabels.length ? `WebM local com ${audioLabels.join(" + ")}` : "WebM local sem áudio";
   closeShareSheet();
   setRecorderButtonState("starting");
-  clearRecordingObjectUrl();
-  clearCaptionObjectUrl();
-  resetCaptionCapture(wantsMicrophone);
+  activeController?.abort();
+  activeController = null;
+  analyzeRunId += 1;
+  currentData = null;
+  recordingWarningMessage = "";
+  clearRecordingResultState();
+  resetCaptionCapture(false);
+  renderRecordingStartingState();
 
   try {
     const displayOptions = {
@@ -858,8 +958,19 @@ async function startScreenRecording() {
 
     screenStream = await navigator.mediaDevices.getDisplayMedia(displayOptions);
     if (wantsMicrophone) {
-      microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      microphoneStream = await requestOptionalMicrophoneStream();
     }
+
+    const hasSystemAudio = screenStream.getAudioTracks().length > 0;
+    const hasMicrophoneAudio = (microphoneStream?.getAudioTracks() || []).length > 0;
+    const enabledAudioLabels = [
+      hasSystemAudio ? "áudio do sistema" : null,
+      hasMicrophoneAudio ? "microfone" : null
+    ].filter(Boolean);
+    recordingMetaSuffix = enabledAudioLabels.length
+      ? `WebM local com ${enabledAudioLabels.join(" + ")}`
+      : "WebM local sem áudio";
+    resetCaptionCapture(hasMicrophoneAudio);
 
     recordingStream = buildRecordingStream(screenStream, microphoneStream, wantsSystemAudio);
     if (recordingAudioContext?.state === "suspended") {
@@ -889,15 +1000,17 @@ async function startScreenRecording() {
     resetPasteHint();
   } catch (error) {
     cleanupRecordingSession();
-    pasteHint.textContent = screenRecordingErrorMessage(error);
+    const message = screenRecordingErrorMessage(error);
+    setRecorderStartError(message);
+    pasteHint.textContent = message;
     pasteHint.classList.add("flash");
     resetPasteHint(5200);
   }
 }
 
 // Chrome/Windows needs a fresh click to open the native share panel after the file is prepared.
-function showShareSheet(file) {
-  preparedSharePayload = { files: [file], title: currentData?.title || "VideoDrop" };
+function showShareSheet(file, title = currentData?.title || "VideoDrop") {
+  preparedSharePayload = { files: [file], title };
   if (shareSheetMeta) {
     shareSheetMeta.textContent = `${file.name} está pronto. Clique para abrir a tela de compartilhamento do Windows.`;
   }
@@ -1023,6 +1136,8 @@ async function analyze(url) {
   activeController?.abort();
   const runId = ++analyzeRunId;
   currentUrl = nextUrl;
+  closeShareSheet();
+  clearRecordingResultState();
   input.value = currentUrl;
   setLoading(currentUrl);
   setAnalyzingState(true);

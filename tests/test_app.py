@@ -88,6 +88,34 @@ def test_screen_recorder_generates_srt_caption_download_when_microphone_is_used(
     assert "Legendas indisponíveis neste navegador." in recorder_helpers
 
 
+def test_microphone_capture_failure_keeps_screen_recording_available():
+    app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    recorder_helpers = app_js.split("// Screen recording flow.", 1)[1].split("// Chrome/Windows", 1)[0]
+
+    assert "const MICROPHONE_REQUEST_TIMEOUT_MS = 10000;" in app_js
+    assert "async function requestOptionalMicrophoneStream()" in recorder_helpers
+    assert "navigator.mediaDevices.getUserMedia({ audio: true })" in recorder_helpers
+    assert "await Promise.race([" in recorder_helpers
+    assert "MICROPHONE_REQUEST_TIMEOUT_MS" in recorder_helpers
+    assert "return null;" in recorder_helpers
+    assert "microphoneStream = await requestOptionalMicrophoneStream();" in recorder_helpers
+    assert "resetCaptionCapture(hasMicrophoneAudio)" in recorder_helpers
+    assert "A gravação seguirá sem microfone." in recorder_helpers
+
+
+def test_switching_between_download_and_recording_clears_previous_results():
+    app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    recorder_helpers = app_js.split("// Screen recording flow.", 1)[1].split("// Chrome/Windows", 1)[0]
+    analyze_flow = app_js.split("// URL analysis flow.", 1)[1]
+
+    assert "function clearRecordingResultState()" in app_js
+    assert "renderRecordingStartingState();" in recorder_helpers
+    assert "activeController?.abort();" in recorder_helpers
+    assert "currentData = null;" in recorder_helpers
+    assert "clearRecordingResultState();" in analyze_flow
+    assert "closeShareSheet();" in analyze_flow
+
+
 def test_security_headers_allow_screen_capture_and_microphone():
     security_py = (app_module.STATIC_DIR.parent / "videodrop" / "security.py").read_text(encoding="utf-8")
 
