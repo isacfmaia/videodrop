@@ -55,7 +55,7 @@
         document.documentElement.dataset.theme = storedTheme || (prefersLight ? "light" : "dark");
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260625-screen-recorder" />
+    <link rel="stylesheet" href="/styles.css?v=20260626-share-fallback" />
   </head>
   <body>
     <button class="theme-toggle" id="themeToggle" type="button" aria-label="Alternar tema" title="Alternar tema">
@@ -179,6 +179,7 @@
             <span>Compartilhar agora</span>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
           </button>
+          <a class="download-button share-sheet-download" id="shareSheetDownload" hidden>Baixar arquivo</a>
           <button class="ghost-button" id="shareSheetCancel" type="button">Cancelar</button>
         </div>
       </div>
@@ -197,6 +198,6 @@
       </article>
     </template>
 
-    <script src="/app.js?v=20260625-screen-recorder" type="module"></script>
+    <script src="/app.js?v=20260626-share-fallback" type="module"></script>
   </body>
 </html>

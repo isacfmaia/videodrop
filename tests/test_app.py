@@ -66,7 +66,7 @@ def test_screen_recorder_uses_browser_capture_and_share_apis():
     assert "new MediaRecorder(recordingStream" in app_js
     assert "MediaRecorder.isTypeSupported(type)" in app_js
     assert "createMediaStreamDestination()" in app_js
-    assert "navigator.canShare(sharePayload)" in app_js
+    assert "navigator.canShare(payload)" in app_js
     assert "navigator.share(preparedSharePayload)" in app_js
     assert 'fetch("/api/recordings/whatsapp"' in app_js
     assert "Convertendo gravação para MP4" in app_js
@@ -391,18 +391,24 @@ def test_ffmpeg_subprocesses_are_hidden_on_windows():
     assert downloads_py.count("**_hidden_ffmpeg_window_kwargs()") == 2
 
 
-def test_whatsapp_button_prepares_file_then_uses_native_share_without_text_fallback():
+def test_share_button_prepares_file_with_download_fallback_then_uses_native_share():
     app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    html = (app_module.STATIC_DIR / "index.html").read_text(encoding="utf-8")
     share_function = app_js.split("async function shareToWhatsApp", 1)[1].split("function renderFormats", 1)[0]
     prepared_share_function = app_js.split("async function sharePreparedFile", 1)[1].split("async function shareToWhatsApp", 1)[0]
 
+    assert 'id="shareSheetDownload"' in html
     assert "fetch(url)" in share_function
     assert "showShareSheet(file)" in share_function
     assert 'triggerButton.textContent = "Preparando..."' in share_function
     assert "Preparando arquivo para compartilhar..." in share_function
     assert "triggerButton.disabled = true" in share_function
-    assert "navigator.canShare(sharePayload)" in share_function
-    assert "navigator.share(sharePayload)" not in share_function
+    assert "URL.createObjectURL(file)" in app_js
+    assert "shareSheetDownload.download = file.name" in app_js
+    assert "clearPreparedShareFile()" in app_js
+    assert "O compartilhamento do Windows falhou." in prepared_share_function
+    assert "navigator.canShare(payload)" in app_js
+    assert "navigator.share(payload)" not in app_js
     assert "navigator.share(preparedSharePayload)" in prepared_share_function
     assert "fetch(" not in prepared_share_function
     assert "openWhatsAppFallback" not in app_js

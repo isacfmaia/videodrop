@@ -14,6 +14,7 @@ const copyrightYear = document.querySelector("#copyrightYear");
 const shareSheet = document.querySelector("#shareSheet");
 const shareSheetMeta = document.querySelector("#shareSheetMeta");
 const shareNowButton = document.querySelector("#shareNowButton");
+const shareSheetDownload = document.querySelector("#shareSheetDownload");
 const shareSheetClose = document.querySelector("#shareSheetClose");
 const shareSheetCancel = document.querySelector("#shareSheetCancel");
 const screenRecordButton = document.querySelector("#screenRecordButton");
@@ -40,6 +41,7 @@ let currentData = null;
 let activeController = null;
 let analyzeRunId = 0;
 let preparedSharePayload = null;
+let preparedShareObjectUrl = "";
 let screenStream = null;
 let microphoneStream = null;
 let recordingStream = null;
@@ -891,18 +893,11 @@ async function shareRecordedFile(file, triggerButton) {
   pasteHint.classList.add("flash");
 
   try {
-    if (!navigator.share) {
-      throw new Error("native share unavailable");
-    }
-
     const mp4File = await convertRecordedFileForWhatsApp(file);
-    const sharePayload = { files: [mp4File], title: "VideoDrop" };
-    if (!navigator.share || !navigator.canShare || !navigator.canShare(sharePayload)) {
-      throw new Error("file share unavailable");
-    }
-
-    showShareSheet(mp4File, "VideoDrop");
-    pasteHint.textContent = "MP4 pronto para compartilhar.";
+    const canNativeShare = showShareSheet(mp4File, "VideoDrop");
+    pasteHint.textContent = canNativeShare
+      ? "MP4 pronto para compartilhar."
+      : "MP4 pronto. Se o Windows não compartilhar, baixe o arquivo pelo modal.";
     pasteHint.classList.add("flash");
     resetPasteHint();
   } catch (error) {
@@ -1008,18 +1003,70 @@ async function startScreenRecording() {
   }
 }
 
+function clearPreparedShareFile() {
+  preparedSharePayload = null;
+  if (preparedShareObjectUrl) {
+    URL.revokeObjectURL(preparedShareObjectUrl);
+    preparedShareObjectUrl = "";
+  }
+  if (shareSheetDownload) {
+    shareSheetDownload.hidden = true;
+    shareSheetDownload.removeAttribute("href");
+    shareSheetDownload.removeAttribute("download");
+  }
+}
+
+function setShareSheetMessage(message) {
+  if (shareSheetMeta) shareSheetMeta.textContent = message;
+}
+
+function canUseNativeShare(payload) {
+  if (!navigator.share) return false;
+  if (!navigator.canShare) return true;
+  try {
+    return navigator.canShare(payload);
+  } catch (error) {
+    return false;
+  }
+}
+
+function setShareSheetDownload(file) {
+  preparedShareObjectUrl = URL.createObjectURL(file);
+  if (shareSheetDownload) {
+    shareSheetDownload.href = preparedShareObjectUrl;
+    shareSheetDownload.download = file.name;
+    shareSheetDownload.hidden = false;
+  }
+}
+
 // Chrome/Windows needs a fresh click to open the native share panel after the file is prepared.
 function showShareSheet(file, title = currentData?.title || "VideoDrop") {
+  clearPreparedShareFile();
   preparedSharePayload = { files: [file], title };
-  if (shareSheetMeta) {
-    shareSheetMeta.textContent = `${file.name} está pronto. Clique para abrir a tela de compartilhamento do Windows.`;
+  setShareSheetDownload(file);
+
+  const canNativeShare = canUseNativeShare(preparedSharePayload);
+  if (shareNowButton) {
+    shareNowButton.disabled = !canNativeShare;
   }
+
+  setShareSheetMessage(
+    canNativeShare
+      ? `${file.name} está pronto. Tente compartilhar pelo Windows ou baixe o arquivo aqui.`
+      : `${file.name} está pronto, mas o compartilhamento nativo não aceitou esse arquivo. Baixe por aqui.`
+  );
   shareSheet.hidden = false;
-  shareNowButton?.focus();
+  if (canNativeShare) {
+    shareNowButton?.focus();
+  } else {
+    shareSheetDownload?.focus();
+  }
+  return canNativeShare;
 }
 
 function closeShareSheet() {
-  preparedSharePayload = null;
+  clearPreparedShareFile();
+  if (shareNowButton) shareNowButton.disabled = false;
   if (shareSheet) shareSheet.hidden = true;
 }
 
@@ -1027,11 +1074,7 @@ async function sharePreparedFile() {
   if (!preparedSharePayload) return;
 
   try {
-    if (!navigator.share) {
-      throw new Error("native share unavailable");
-    }
-
-    if (navigator.canShare && !navigator.canShare(preparedSharePayload)) {
+    if (!canUseNativeShare(preparedSharePayload)) {
       throw new Error("file share unavailable");
     }
 
@@ -1041,11 +1084,14 @@ async function sharePreparedFile() {
     pasteHint.classList.add("flash");
     resetPasteHint();
   } catch (error) {
-    if (error.name !== "AbortError") {
-      pasteHint.textContent = "O Chrome/Windows não aceitou compartilhar esse arquivo. Tente baixar e anexar no WhatsApp.";
-      pasteHint.classList.add("flash");
-      resetPasteHint(5200);
-    }
+    const message = error.name === "AbortError"
+      ? "Compartilhamento cancelado. O arquivo continua pronto para baixar."
+      : "O compartilhamento do Windows falhou. O arquivo pronto continua disponível para baixar.";
+    setShareSheetMessage(message);
+    shareSheetDownload?.focus();
+    pasteHint.textContent = message;
+    pasteHint.classList.add("flash");
+    resetPasteHint(5200);
   }
 }
 
@@ -1064,27 +1110,19 @@ async function shareToWhatsApp(format, triggerButton) {
   pasteHint.classList.add("flash");
 
   try {
-    if (!navigator.share) {
-      throw new Error("native share unavailable");
-    }
-
     const response = await fetch(url);
     if (!response.ok) throw new Error("download failed");
 
     const blob = await response.blob();
     const file = new File([blob], fileName, { type: mimeType });
-    const sharePayload = { files: [file] };
-
-    if (navigator.canShare && !navigator.canShare(sharePayload)) {
-      throw new Error("file share unavailable");
-    }
-
-    showShareSheet(file);
-    pasteHint.textContent = "Arquivo pronto para compartilhar.";
+    const canNativeShare = showShareSheet(file);
+    pasteHint.textContent = canNativeShare
+      ? "Arquivo pronto para compartilhar."
+      : "Arquivo pronto. Se o Windows não compartilhar, baixe pelo modal.";
     pasteHint.classList.add("flash");
   } catch (error) {
     if (error.name !== "AbortError") {
-      pasteHint.textContent = "Não consegui abrir o compartilhamento do sistema para esse arquivo.";
+      pasteHint.textContent = "Não consegui preparar esse arquivo para compartilhar.";
       pasteHint.classList.add("flash");
       hintResetDelay = 4200;
     }
@@ -1214,6 +1252,7 @@ window.addEventListener("paste", (event) => {
 });
 
 window.addEventListener("beforeunload", () => {
+  clearPreparedShareFile();
   clearRecordingObjectUrl();
   clearCaptionObjectUrl();
   stopStreamTracks(recordingStream);
