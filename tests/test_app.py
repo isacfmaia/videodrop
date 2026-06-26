@@ -194,7 +194,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.4"' in installer
+    assert '#define MyAppVersion "1.0.5"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
@@ -380,6 +380,15 @@ def test_whatsapp_compatibility_detection(monkeypatch):
         lambda _path: "video: h264 (main), yuv420p\naudio: aac (lc)",
     )
     assert downloads._is_whatsapp_compatible_mp4(file_path) is True
+
+
+def test_ffmpeg_subprocesses_are_hidden_on_windows():
+    downloads_py = (app_module.STATIC_DIR.parent / "videodrop" / "downloads.py").read_text(encoding="utf-8")
+
+    assert "def _hidden_ffmpeg_window_kwargs()" in downloads_py
+    assert "subprocess.STARTF_USESHOWWINDOW" in downloads_py
+    assert "CREATE_NO_WINDOW" in downloads_py
+    assert downloads_py.count("**_hidden_ffmpeg_window_kwargs()") == 2
 
 
 def test_whatsapp_button_prepares_file_then_uses_native_share_without_text_fallback():

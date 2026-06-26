@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import sys
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -18,6 +19,19 @@ from .config import (
     logger,
 )
 from .extractor import _first_video
+
+
+def _hidden_ffmpeg_window_kwargs() -> dict:
+    if not sys.platform.startswith("win"):
+        return {}
+
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0
+    return {
+        "startupinfo": startupinfo,
+        "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    }
 
 
 def _select_format(url: str, format_id: str) -> tuple[str, bool]:
@@ -57,6 +71,7 @@ def _ffmpeg_probe_text(file_path: Path) -> str:
         encoding="utf-8",
         errors="replace",
         check=False,
+        **_hidden_ffmpeg_window_kwargs(),
     )
     return f"{result.stdout}\n{result.stderr}".lower()
 
@@ -130,6 +145,7 @@ def _make_whatsapp_compatible_mp4(file_path: Path) -> Path:
         encoding="utf-8",
         errors="replace",
         check=False,
+        **_hidden_ffmpeg_window_kwargs(),
     )
     if result.returncode != 0 or not output_path.exists():
         logger.error("Falha convertendo MP4 para compatibilidade WhatsApp: %s", result.stderr)
