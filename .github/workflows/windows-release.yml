@@ -1,0 +1,124 @@
+name: Build Windows release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows-release.yml"
+      - "installer/videodrop.iss"
+      - "scripts/build_windows.ps1"
+      - "scripts/make_windows_icon.py"
+      - "requirements*.txt"
+      - "app.py"
+      - "desktop_launcher.py"
+      - "videodrop/**"
+      - "static/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x86"
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: .\scripts\build_windows.ps1
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $versionMatch = Select-String -Path "installer\videodrop.iss" -Pattern '#define MyAppVersion "([^"]+)"'
+          $version = $versionMatch.Matches[0].Groups[1].Value
+          $tag = "v$version"
+          $installer = Resolve-Path "dist\installer\VideoDrop-Setup.exe"
+          $sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash
+          $repo = $env:GITHUB_REPOSITORY
+
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+
+          $body = @"
+          VideoDrop $version
+
+          Correcao no fluxo de Compartilhar:
+          - o arquivo preparado continua disponivel no modal;
+          - se o compartilhamento do Windows falhar ou for cancelado, o botao Baixar arquivo baixa o mesmo arquivo sem reprocessar.
+
+          SHA-256 do instalador:
+          $sha256
+          "@
+
+          $releasePayload = @{
+            tag_name = $tag
+            target_commitish = $env:GITHUB_SHA
+            name = "VideoDrop $version"
+            body = $body
+            draft = $false
+            prerelease = $false
+            make_latest = "true"
+          } | ConvertTo-Json
+
+          try {
+            $release = Invoke-RestMethod `
+              -Method Post `
+              -Uri "https://api.github.com/repos/$repo/releases" `
+              -Headers $headers `
+              -Body $releasePayload `
+              -ContentType "application/json"
+          } catch {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+            if ($statusCode -ne 422) {
+              throw
+            }
+
+            $release = Invoke-RestMethod `
+              -Method Get `
+              -Uri "https://api.github.com/repos/$repo/releases/tags/$tag" `
+              -Headers $headers
+
+            $release = Invoke-RestMethod `
+              -Method Patch `
+              -Uri "https://api.github.com/repos/$repo/releases/$($release.id)" `
+              -Headers $headers `
+              -Body $releasePayload `
+              -ContentType "application/json"
+          }
+
+          foreach ($asset in @($release.assets | Where-Object { $_.name -eq "VideoDrop-Setup.exe" })) {
+            Invoke-RestMethod `
+              -Method Delete `
+              -Uri "https://api.github.com/repos/$repo/releases/assets/$($asset.id)" `
+              -Headers $headers | Out-Null
+          }
+
+          $uploadUri = $release.upload_url -replace "\{\?name,label\}", "?name=VideoDrop-Setup.exe"
+          Invoke-RestMethod `
+            -Method Post `
+            -Uri $uploadUri `
+            -Headers $headers `
+            -InFile $installer `
+            -ContentType "application/octet-stream" | Out-Null
