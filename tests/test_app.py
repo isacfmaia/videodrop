@@ -194,7 +194,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.5"' in installer
+    assert '#define MyAppVersion "1.0.7"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
@@ -424,6 +424,9 @@ def test_download_button_shows_loading_until_backend_ready_cookie():
 
     assert "download_token" in download_helpers
     assert "waitForDownloadReady(cookieName)" in download_helpers
+    assert "event.preventDefault();" in download_helpers
+    assert "startBrowserDownload(href)" in download_helpers
+    assert "document.createElement(\"a\")" in download_helpers
     assert 'triggerLink.textContent = isLoading ? "Preparando..."' in download_helpers
     assert 'pasteHint.textContent = "Preparando download..."' in download_helpers
     assert "download.addEventListener(\"click\", (event) => prepareDownload(format, download, event))" in render_formats

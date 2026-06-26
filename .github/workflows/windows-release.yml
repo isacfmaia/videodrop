@@ -64,8 +64,9 @@ jobs:
           $body = @"
           VideoDrop $version
 
-          Correcao no fluxo de Compartilhar:
-          - o arquivo preparado continua disponivel no modal;
+          Correcoes desta versao:
+          - o botao Baixar dispara o download final do navegador de forma explicita;
+          - o arquivo preparado para Compartilhar continua disponivel no modal;
           - se o compartilhamento do Windows falhar ou for cancelado, o botao Baixar arquivo baixa o mesmo arquivo sem reprocessar.
 
           SHA-256 do instalador:

@@ -318,19 +318,32 @@ function setDownloadState(triggerLink, isLoading) {
   triggerLink.textContent = isLoading ? "Preparando..." : (triggerLink.dataset.originalText || "Baixar");
 }
 
+function startBrowserDownload(href) {
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = "";
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 async function prepareDownload(format, triggerLink, event) {
+  event.preventDefault();
   if (triggerLink.dataset.loading === "1") {
-    event.preventDefault();
     return;
   }
 
   const downloadToken = createDownloadToken();
   const cookieName = `${DOWNLOAD_READY_COOKIE_PREFIX}${downloadToken}`;
+  const href = downloadUrl(format.format_id, downloadToken);
   triggerLink.dataset.originalText = triggerLink.textContent;
-  triggerLink.href = downloadUrl(format.format_id, downloadToken);
+  triggerLink.href = href;
   setDownloadState(triggerLink, true);
   pasteHint.textContent = "Preparando download...";
   pasteHint.classList.add("flash");
+  startBrowserDownload(href);
 
   const isReady = await waitForDownloadReady(cookieName);
   setDownloadState(triggerLink, false);
