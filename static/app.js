@@ -117,8 +117,8 @@ function activeCookieBrowser(urlValue = currentUrl || input?.value || "") {
 }
 
 function syncBrowserAuthSelectState() {
-  if (browserLoginButton && browserAuthToggle) {
-    browserLoginButton.disabled = !browserAuthToggle.checked;
+  if (browserLoginButton) {
+    browserLoginButton.disabled = false;
   }
 }
 

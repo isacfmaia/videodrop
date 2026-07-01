@@ -77,6 +77,8 @@ def test_dedicated_firefox_login_controls_are_available_for_local_instagram_cook
     assert "function isInstagramUrl(value)" in app_js
     assert 'return isInstagramUrl(urlValue) ? "firefox" : "";' in app_js
     assert 'fetch("/api/browser-login/instagram", { method: "POST" })' in app_js
+    assert "browserLoginButton.disabled = false;" in app_js
+    assert "browserLoginButton.disabled = !browserAuthToggle.checked" not in app_js
     assert 'payload.cookie_browser = cookieBrowser' in app_js
     assert 'params.set("cookie_browser", cookieBrowser)' in app_js
 
@@ -249,7 +251,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.12"' in installer
+    assert '#define MyAppVersion "1.0.13"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 

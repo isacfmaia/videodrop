@@ -67,6 +67,7 @@ jobs:
           Correcoes desta versao:
           - substitui o seletor de navegadores por Login dedicado do VideoDrop via Firefox;
           - abre o Instagram em um perfil Firefox separado para autenticar downloads;
+          - corrige o botao Entrar no Instagram para funcionar mesmo com o login dedicado desligado;
           - usa o perfil Firefox dedicado na analise, download e compartilhamento de links do Instagram;
           - rejeita Chrome, Edge e Brave como fonte de cookies para evitar bloqueios DPAPI/App-Bound;
           - orienta instalar Firefox quando ele nao estiver disponivel;
