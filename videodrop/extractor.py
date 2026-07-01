@@ -39,6 +39,16 @@ _BROWSER_LABELS = {
     "whale": "Whale",
 }
 _INSTAGRAM_EMPTY_MEDIA_MARKER = "Instagram sent an empty media response"
+_CHROMIUM_COOKIE_COPY_MARKER = "Could not copy Chrome cookie database"
+_CHROMIUM_COOKIE_BROWSERS = {
+    "brave",
+    "chrome",
+    "chromium",
+    "edge",
+    "opera",
+    "vivaldi",
+    "whale",
+}
 
 
 def _browser_label(cookie_browser: str | None) -> str:
@@ -49,6 +59,18 @@ def _browser_label(cookie_browser: str | None) -> str:
 
 def _friendly_ydl_error_detail(exc: Exception, cookie_browser: str | None = None) -> str:
     """Convert common yt-dlp failures into user-facing Portuguese messages."""
+    message = str(exc).splitlines()[-1]
+    while message.startswith("ERROR: "):
+        message = message.removeprefix("ERROR: ").strip()
+
+    if _CHROMIUM_COOKIE_COPY_MARKER in message:
+        browser = _browser_label(cookie_browser if cookie_browser in _CHROMIUM_COOKIE_BROWSERS else "chrome")
+        return (
+            f"O {browser} bloqueou o banco de cookies enquanto estava aberto. "
+            f"Feche todas as janelas do {browser}, aguarde alguns segundos e tente novamente, "
+            "ou escolha outro navegador em que voce esteja logado no Instagram."
+        )
+
     if isinstance(exc, CookieLoadError):
         return (
             f"Nao consegui ler os cookies do {_browser_label(cookie_browser)}. "
@@ -56,7 +78,6 @@ def _friendly_ydl_error_detail(exc: Exception, cookie_browser: str | None = None
             "logado no Instagram."
         )
 
-    message = str(exc).splitlines()[-1]
     if _INSTAGRAM_EMPTY_MEDIA_MARKER in message:
         if cookie_browser:
             return (

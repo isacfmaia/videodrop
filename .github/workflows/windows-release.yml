@@ -65,9 +65,11 @@ jobs:
           VideoDrop $version
 
           Correcoes desta versao:
-          - o botao Baixar dispara o download final do navegador de forma explicita;
-          - o arquivo preparado para Compartilhar continua disponivel no modal;
-          - se o compartilhamento do Windows falhar ou for cancelado, o botao Baixar arquivo baixa o mesmo arquivo sem reprocessar.
+          - adiciona Login do navegador no app local para links que exigem sessao;
+          - aplica cookies do navegador na analise, download e compartilhamento;
+          - mostra uma mensagem clara quando Chrome/Chromium bloqueia o banco de cookies;
+          - separa cache de analise com e sem cookies para evitar resultado misturado;
+          - atualiza dependencias antes do build Windows.
 
           SHA-256 do instalador:
           $sha256

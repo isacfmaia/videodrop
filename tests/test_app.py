@@ -210,7 +210,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.8"' in installer
+    assert '#define MyAppVersion "1.0.9"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
@@ -427,6 +427,21 @@ def test_download_passes_local_browser_cookie_source(client, monkeypatch):
 
 def test_yt_dlp_options_include_browser_cookie_source():
     assert _base_ydl_opts("edge")["cookiesfrombrowser"] == ("edge",)
+
+
+def test_chrome_cookie_copy_error_is_humanized():
+    detail = extractor._friendly_ydl_error_detail(
+        Exception(
+            "ERROR: ERROR: Could not copy Chrome cookie database. "
+            "See https://github.com/yt-dlp/yt-dlp/issues/7271 for more info"
+        ),
+        "chrome",
+    )
+
+    assert "Chrome bloqueou o banco de cookies" in detail
+    assert "Feche todas as janelas do Chrome" in detail
+    assert "ERROR:" not in detail
+    assert "github.com" not in detail
 
 
 def test_thumbnail_rejects_invalid_token(client):
