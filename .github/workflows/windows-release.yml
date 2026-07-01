@@ -69,6 +69,7 @@ jobs:
           - aplica cookies do navegador na analise, download e compartilhamento;
           - mostra uma mensagem clara quando Chrome/Chromium bloqueia o banco de cookies;
           - mostra uma mensagem clara quando o Windows bloqueia a descriptografia DPAPI dos cookies;
+          - oferece uma nova tentativa com Firefox quando o Chrome/Chromium bloqueia cookies;
           - separa cache de analise com e sem cookies para evitar resultado misturado;
           - atualiza dependencias antes do build Windows.
 

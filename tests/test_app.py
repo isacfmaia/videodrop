@@ -66,11 +66,27 @@ def test_browser_login_controls_are_available_for_local_instagram_cookies():
     assert 'id="browserAuthPanel" hidden' in html
     assert 'id="browserAuthToggle" type="checkbox"' in html
     assert 'id="browserAuthSelect"' in html
+    assert html.index('<option value="firefox">Firefox</option>') < html.index('<option value="edge">Edge</option>')
     assert '<option value="edge">Edge</option>' in html
     assert "function browserCookieAuthAvailable()" in app_js
     assert "activeCookieBrowser()" in app_js
+    assert 'localStorage.getItem(BROWSER_AUTH_BROWSER_STORAGE_KEY) || "firefox"' in app_js
     assert 'payload.cookie_browser = cookieBrowser' in app_js
     assert 'params.set("cookie_browser", cookieBrowser)' in app_js
+
+
+def test_chromium_cookie_errors_offer_firefox_retry_action():
+    app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    styles = (app_module.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert "CHROMIUM_COOKIE_ERROR_MARKERS" in app_js
+    assert '"descriptografia dos cookies"' in app_js
+    assert "function renderErrorActions(message)" in app_js
+    assert 'data-retry-cookie-browser="firefox"' in app_js
+    assert 'setCookieBrowser(browser);' in app_js
+    assert 'pasteHint.textContent = "Tentando de novo com Firefox..."' in app_js
+    assert "escapeHtml(message)" in app_js
+    assert ".error-retry-button" in styles
 
 
 def test_screen_recorder_uses_browser_capture_and_share_apis():
@@ -210,7 +226,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.10"' in installer
+    assert '#define MyAppVersion "1.0.11"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 

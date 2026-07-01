@@ -33,6 +33,10 @@ const DOWNLOAD_READY_POLL_MS = 400;
 const DOWNLOAD_READY_COOKIE_PREFIX = "videodrop_download_";
 const BROWSER_AUTH_ENABLED_STORAGE_KEY = "videodrop-browser-auth-enabled";
 const BROWSER_AUTH_BROWSER_STORAGE_KEY = "videodrop-browser-auth-browser";
+const CHROMIUM_COOKIE_ERROR_MARKERS = [
+  "bloqueou o banco de cookies",
+  "descriptografia dos cookies"
+];
 const RECORDER_MIME_TYPES = [
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
@@ -98,7 +102,7 @@ function browserCookieAuthAvailable() {
 
 function activeCookieBrowser() {
   if (!browserCookieAuthAvailable() || !browserAuthToggle?.checked) return "";
-  return browserAuthSelect?.value || "edge";
+  return browserAuthSelect?.value || "firefox";
 }
 
 function syncBrowserAuthSelectState() {
@@ -113,7 +117,7 @@ function setupBrowserAuthControls() {
 
   browserAuthPanel.hidden = false;
   browserAuthToggle.checked = localStorage.getItem(BROWSER_AUTH_ENABLED_STORAGE_KEY) === "1";
-  browserAuthSelect.value = localStorage.getItem(BROWSER_AUTH_BROWSER_STORAGE_KEY) || "edge";
+  browserAuthSelect.value = localStorage.getItem(BROWSER_AUTH_BROWSER_STORAGE_KEY) || "firefox";
   syncBrowserAuthSelectState();
 
   browserAuthToggle.addEventListener("change", () => {
@@ -123,6 +127,15 @@ function setupBrowserAuthControls() {
   browserAuthSelect.addEventListener("change", () => {
     localStorage.setItem(BROWSER_AUTH_BROWSER_STORAGE_KEY, browserAuthSelect.value);
   });
+}
+
+function setCookieBrowser(browser) {
+  if (!browserAuthToggle || !browserAuthSelect) return;
+  browserAuthToggle.checked = true;
+  browserAuthSelect.value = browser;
+  localStorage.setItem(BROWSER_AUTH_ENABLED_STORAGE_KEY, "1");
+  localStorage.setItem(BROWSER_AUTH_BROWSER_STORAGE_KEY, browser);
+  syncBrowserAuthSelectState();
 }
 
 // Small formatting and timing helpers used by multiple UI states.
@@ -161,6 +174,46 @@ function formatClock(seconds) {
   const mins = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, "0");
   const secs = Math.floor(totalSeconds % 60).toString().padStart(2, "0");
   return hours ? `${hours}:${mins}:${secs}` : `${mins}:${secs}`;
+}
+
+function escapeHtml(value) {
+  return value.replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[char]));
+}
+
+function shouldOfferFirefoxRetry(message) {
+  if (!browserCookieAuthAvailable() || !browserAuthToggle || !browserAuthSelect) return false;
+  const normalizedMessage = message.toLowerCase();
+  return CHROMIUM_COOKIE_ERROR_MARKERS.some((marker) => normalizedMessage.includes(marker));
+}
+
+function renderErrorActions(message) {
+  if (!shouldOfferFirefoxRetry(message)) return "";
+  return `
+    <div class="error-actions">
+      <button class="ghost-button error-retry-button" type="button" data-retry-cookie-browser="firefox">
+        Tentar com Firefox
+      </button>
+      <p>Entre no Instagram pelo Firefox antes da tentativa, se ainda nao estiver logado.</p>
+    </div>
+  `;
+}
+
+function wireErrorActions() {
+  const retryButton = results.querySelector("[data-retry-cookie-browser]");
+  if (!retryButton) return;
+
+  retryButton.addEventListener("click", () => {
+    const browser = retryButton.dataset.retryCookieBrowser || "firefox";
+    setCookieBrowser(browser);
+    pasteHint.textContent = "Tentando de novo com Firefox...";
+    if (currentUrl) analyze(currentUrl);
+  });
 }
 
 function waitForPaint() {
@@ -215,7 +268,13 @@ function setError(message) {
   previewTitle.textContent = "Oops, não deu certo";
   previewMeta.textContent = "Tente outro link público ou confira se o conteúdo exige login.";
   renderPreviewError();
-  results.innerHTML = `<div class="error-state"><p>${message}</p></div>`;
+  results.innerHTML = `
+    <div class="error-state">
+      <p>${escapeHtml(message)}</p>
+      ${renderErrorActions(message)}
+    </div>
+  `;
+  wireErrorActions();
 }
 
 function setRecorderStartError(message) {

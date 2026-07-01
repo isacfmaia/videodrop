@@ -304,8 +304,9 @@ Para publicar com mais tranquilidade:
 
 - Links privados, restritos por login, idade, região ou cookies podem falhar.
 - No app local, a opção **Login do navegador** permite usar cookies do Edge, Chrome, Firefox ou Brave para conteúdos que a conta já consegue acessar no navegador.
+- Para Instagram no Windows, o Firefox costuma ser o caminho mais estável porque evita os bloqueios de cookies do Chrome/Chromium.
 - No Chrome/Chromium em Windows, talvez seja necessário fechar todas as janelas do navegador antes da análise para liberar o banco de cookies.
-- Se o Windows bloquear a descriptografia DPAPI dos cookies do Chrome/Chromium, abra o VideoDrop no mesmo usuário do Windows e sem executar como administrador, ou tente Firefox.
+- Se o Windows bloquear a descriptografia DPAPI dos cookies do Chrome/Chromium, o VideoDrop oferece uma nova tentativa com Firefox.
 - O tamanho exibido depende dos metadados da plataforma; quando não há tamanho real, o app estima por bitrate e duração.
 - No Chrome/Windows, o compartilhamento nativo precisa de uma etapa extra: primeiro o app prepara o arquivo, depois o botão **Compartilhar agora** abre o painel do sistema.
 - O app não envia texto/link como fallback no compartilhamento.
