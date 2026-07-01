@@ -210,7 +210,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.9"' in installer
+    assert '#define MyAppVersion "1.0.10"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
@@ -441,6 +441,21 @@ def test_chrome_cookie_copy_error_is_humanized():
     assert "Chrome bloqueou o banco de cookies" in detail
     assert "Feche todas as janelas do Chrome" in detail
     assert "ERROR:" not in detail
+    assert "github.com" not in detail
+
+
+def test_chrome_dpapi_error_is_humanized():
+    detail = extractor._friendly_ydl_error_detail(
+        Exception(
+            "Failed to decrypt with DPAPI. "
+            "See https://github.com/yt-dlp/yt-dlp/issues/10927 for more info"
+        ),
+        "chrome",
+    )
+
+    assert "Windows nao liberou a descriptografia dos cookies do Chrome" in detail
+    assert "mesmo usuario do Windows" in detail
+    assert "sem executar como administrador" in detail
     assert "github.com" not in detail
 
 

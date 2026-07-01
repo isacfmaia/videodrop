@@ -40,6 +40,7 @@ _BROWSER_LABELS = {
 }
 _INSTAGRAM_EMPTY_MEDIA_MARKER = "Instagram sent an empty media response"
 _CHROMIUM_COOKIE_COPY_MARKER = "Could not copy Chrome cookie database"
+_CHROMIUM_COOKIE_DPAPI_MARKER = "Failed to decrypt with DPAPI"
 _CHROMIUM_COOKIE_BROWSERS = {
     "brave",
     "chrome",
@@ -69,6 +70,15 @@ def _friendly_ydl_error_detail(exc: Exception, cookie_browser: str | None = None
             f"O {browser} bloqueou o banco de cookies enquanto estava aberto. "
             f"Feche todas as janelas do {browser}, aguarde alguns segundos e tente novamente, "
             "ou escolha outro navegador em que voce esteja logado no Instagram."
+        )
+
+    if _CHROMIUM_COOKIE_DPAPI_MARKER.lower() in message.lower():
+        browser = _browser_label(cookie_browser if cookie_browser in _CHROMIUM_COOKIE_BROWSERS else "chrome")
+        return (
+            f"O Windows nao liberou a descriptografia dos cookies do {browser}. "
+            "Abra o VideoDrop no mesmo usuario do Windows em que voce usa esse navegador, "
+            "sem executar como administrador. Se continuar, escolha Firefox ou outro navegador "
+            "em que voce esteja logado no Instagram."
         )
 
     if isinstance(exc, CookieLoadError):
