@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import app as app_module
 from videodrop import downloads, extractor, thumbnails
+from videodrop.config import _base_ydl_opts
 
 
 @pytest.fixture(autouse=True)
@@ -56,6 +57,20 @@ def test_screen_recorder_ui_is_available_with_audio_toggles_off_by_default():
     assert 'id="recordingDock" hidden' in html
     assert '<button class="ghost-button share-button" type="button">Compartilhar</button>' in html
     assert '<button class="ghost-button share-button" type="button">WhatsApp</button>' not in html
+
+
+def test_browser_login_controls_are_available_for_local_instagram_cookies():
+    html = (app_module.STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="browserAuthPanel" hidden' in html
+    assert 'id="browserAuthToggle" type="checkbox"' in html
+    assert 'id="browserAuthSelect"' in html
+    assert '<option value="edge">Edge</option>' in html
+    assert "function browserCookieAuthAvailable()" in app_js
+    assert "activeCookieBrowser()" in app_js
+    assert 'payload.cookie_browser = cookieBrowser' in app_js
+    assert 'params.set("cookie_browser", cookieBrowser)' in app_js
 
 
 def test_screen_recorder_uses_browser_capture_and_share_apis():
@@ -187,6 +202,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "pystray" in requirements
     assert "pyinstaller" in requirements
     assert "Pillow" in requirements
+    assert "pip install --upgrade -r" in build_script
     assert "videodrop.ico" in build_script
     assert "--windowed" in build_script
     assert "--collect-all\", \"yt_dlp" in build_script
@@ -194,7 +210,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.7"' in installer
+    assert '#define MyAppVersion "1.0.8"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
@@ -267,6 +283,33 @@ def test_probe_uses_cache(client, monkeypatch):
     assert second.status_code == 200
     assert first.json()["title"] == "Teste"
     assert calls["count"] == 1
+
+
+def test_probe_passes_local_browser_cookie_source(client, monkeypatch):
+    calls = []
+
+    def fake_probe(url: str, cookie_browser: str | None = None):
+        calls.append((url, cookie_browser))
+        return {
+            "title": "Instagram",
+            "site": "Instagram",
+            "duration": 10,
+            "thumbnail": None,
+            "thumbnail_proxy": None,
+            "webpage_url": url,
+            "formats": [{"format_id": "720", "resolution": "720p"}],
+            "can_merge": True,
+        }
+
+    monkeypatch.setattr(extractor, "_probe_sync", fake_probe)
+
+    response = client.post(
+        "/api/probe",
+        json={"url": "https://www.instagram.com/reel/example/", "cookie_browser": "edge"},
+    )
+
+    assert response.status_code == 200
+    assert calls == [("https://www.instagram.com/reel/example/", "edge")]
 
 
 def test_probe_returns_yt_dlp_error(client, monkeypatch):
@@ -356,6 +399,34 @@ def test_download_ready_cookie_is_set_for_valid_token(client, monkeypatch):
 
     assert response.status_code == 200
     assert "videodrop_download_download_token_123=ready" in response.headers["set-cookie"]
+
+
+def test_download_passes_local_browser_cookie_source(client, monkeypatch):
+    calls = []
+
+    def fake_download(_url: str, _format_id: str, temp_dir: Path, cookie_browser: str | None = None):
+        calls.append(cookie_browser)
+        file_path = temp_dir / "video.mp4"
+        file_path.write_bytes(b"fake mp4")
+        return file_path
+
+    monkeypatch.setattr(downloads, "_download_sync", fake_download)
+
+    response = client.get(
+        "/api/download",
+        params={
+            "url": "https://www.instagram.com/reel/example/",
+            "format_id": "720",
+            "cookie_browser": "edge",
+        },
+    )
+
+    assert response.status_code == 200
+    assert calls == ["edge"]
+
+
+def test_yt_dlp_options_include_browser_cookie_source():
+    assert _base_ydl_opts("edge")["cookiesfrombrowser"] == ("edge",)
 
 
 def test_thumbnail_rejects_invalid_token(client):

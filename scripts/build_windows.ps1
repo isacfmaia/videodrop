@@ -15,7 +15,7 @@ if (-not (Test-Path $Python)) {
 }
 
 & $Python -m pip install --upgrade pip
-& $Python -m pip install -r (Join-Path $Root "requirements-desktop.txt")
+& $Python -m pip install --upgrade -r (Join-Path $Root "requirements-desktop.txt")
 & $Python (Join-Path $Root "scripts\make_windows_icon.py")
 
 $PyInstallerArgs = @(

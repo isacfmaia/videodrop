@@ -15,7 +15,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
 from . import downloads, extractor, thumbnails
-from .config import MAX_RECORDING_UPLOAD_BYTES, STATIC_DIR, logger
+from .config import (
+    MAX_RECORDING_UPLOAD_BYTES,
+    STATIC_DIR,
+    logger,
+    normalize_cookie_browser,
+)
 from .schemas import ProbeRequest
 from .security import validate_url
 
@@ -25,6 +30,17 @@ router = APIRouter()
 def _is_local_client(request: Request) -> bool:
     host = request.client.host if request.client else ""
     return host == "testclient" or host == "localhost" or host == "::1" or host.startswith("127.")
+
+
+def _cookie_browser_for_request(request: Request, cookie_browser: str | None) -> str | None:
+    if not cookie_browser:
+        return None
+    if not _is_local_client(request):
+        raise HTTPException(status_code=403, detail="Login do navegador disponivel apenas no app local.")
+    try:
+        return normalize_cookie_browser(cookie_browser)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Navegador de login invalido.") from exc
 
 
 def _public_origin(request: Request) -> str:
@@ -114,10 +130,11 @@ async def desktop_open(request: Request) -> dict[str, bool]:
 
 
 @router.post("/api/probe")
-async def probe_video(payload: ProbeRequest) -> dict:
+async def probe_video(payload: ProbeRequest, request: Request) -> dict:
     url = validate_url(payload.url)
-    logger.info("POST /api/probe recebido: %s", url)
-    return await extractor.probe_url(url)
+    cookie_browser = _cookie_browser_for_request(request, payload.cookie_browser)
+    logger.info("POST /api/probe recebido: %s cookies=%s", url, cookie_browser or "nao")
+    return await extractor.probe_url(url, cookie_browser)
 
 
 @router.get("/api/thumbnail/{token}", include_in_schema=False)
@@ -136,16 +153,19 @@ async def thumbnail(token: str) -> Response:
 
 @router.get("/api/download")
 async def download_video(
+    request: Request,
     background_tasks: BackgroundTasks,
     url: str = Query(...),
     format_id: str = Query(...),
     download_token: str | None = Query(default=None),
+    cookie_browser: str | None = Query(default=None),
 ) -> FileResponse:
     valid_url = validate_url(url)
+    valid_cookie_browser = _cookie_browser_for_request(request, cookie_browser)
     temp_dir = Path(tempfile.mkdtemp(prefix="videodrop-"))
 
     try:
-        file_path = await downloads.download_to_temp(valid_url, format_id, temp_dir)
+        file_path = await downloads.download_to_temp(valid_url, format_id, temp_dir, valid_cookie_browser)
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise

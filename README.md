@@ -45,6 +45,7 @@ A interface foi pensada para ser direta: colou a URL, o app analisa, mostra as o
 
 - Download de vídeos públicos em MP4 a partir de URLs compatíveis com `yt-dlp`.
 - Análise de URLs públicas do YouTube, X/Twitter, Instagram, Facebook e outras plataformas compatíveis com `yt-dlp`.
+- Uso opcional de cookies do navegador no app local para posts que exigem login, como alguns links do Instagram.
 - Detecção automática de URL com `Ctrl + V` em qualquer lugar da página.
 - Lista de resoluções MP4 disponíveis com tamanho real ou estimado.
 - Download de áudio em MP3 quando há faixa de áudio disponível.
@@ -302,6 +303,7 @@ Para publicar com mais tranquilidade:
 ## ⚠️ Observações importantes
 
 - Links privados, restritos por login, idade, região ou cookies podem falhar.
+- No app local, a opção **Login do navegador** permite usar cookies do Edge, Chrome, Firefox ou Brave para conteúdos que a conta já consegue acessar no navegador.
 - O tamanho exibido depende dos metadados da plataforma; quando não há tamanho real, o app estima por bitrate e duração.
 - No Chrome/Windows, o compartilhamento nativo precisa de uma etapa extra: primeiro o app prepara o arquivo, depois o botão **Compartilhar agora** abre o painel do sistema.
 - O app não envia texto/link como fallback no compartilhamento.

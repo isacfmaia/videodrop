@@ -81,6 +81,7 @@ body {
 
 button,
 input,
+select,
 a {
   font: inherit;
 }
@@ -230,6 +231,32 @@ input:focus {
   box-shadow: 0 0 0 4px rgba(15, 191, 143, 0.17);
 }
 
+select {
+  min-height: 44px;
+  padding: 0 38px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background:
+    linear-gradient(45deg, transparent 50%, currentColor 50%) calc(100% - 19px) 19px / 6px 6px no-repeat,
+    linear-gradient(135deg, currentColor 50%, transparent 50%) calc(100% - 14px) 19px / 6px 6px no-repeat,
+    color-mix(in srgb, var(--panel) 82%, transparent);
+  color: var(--ink);
+  cursor: pointer;
+  font-weight: 800;
+  appearance: none;
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(15, 191, 143, 0.17);
+}
+
+select:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .primary-button,
 .record-button,
 .download-button,
@@ -303,6 +330,28 @@ input:focus {
 
 .paste-hint.flash {
   color: var(--accent-strong);
+  font-weight: 800;
+}
+
+.browser-auth-panel[hidden] {
+  display: none;
+}
+
+.browser-auth-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.browser-auth-select-label {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.9rem;
   font-weight: 800;
 }
 

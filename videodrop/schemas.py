@@ -9,4 +9,4 @@ class ProbeRequest(BaseModel):
     """Request body used to analyze a public video URL."""
 
     url: str
-
+    cookie_browser: str | None = None

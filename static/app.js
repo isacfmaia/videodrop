@@ -21,6 +21,9 @@ const screenRecordButton = document.querySelector("#screenRecordButton");
 const systemAudioToggle = document.querySelector("#systemAudioToggle");
 const microphoneToggle = document.querySelector("#microphoneToggle");
 const recorderSupportNote = document.querySelector("#recorderSupportNote");
+const browserAuthPanel = document.querySelector("#browserAuthPanel");
+const browserAuthToggle = document.querySelector("#browserAuthToggle");
+const browserAuthSelect = document.querySelector("#browserAuthSelect");
 const recordingDock = document.querySelector("#recordingDock");
 const recordingTimer = document.querySelector("#recordingTimer");
 const recordingStopButton = document.querySelector("#recordingStopButton");
@@ -28,6 +31,8 @@ const ANALYZE_TIMEOUT_MS = 120000;
 const DOWNLOAD_READY_TIMEOUT_MS = 30 * 60 * 1000;
 const DOWNLOAD_READY_POLL_MS = 400;
 const DOWNLOAD_READY_COOKIE_PREFIX = "videodrop_download_";
+const BROWSER_AUTH_ENABLED_STORAGE_KEY = "videodrop-browser-auth-enabled";
+const BROWSER_AUTH_BROWSER_STORAGE_KEY = "videodrop-browser-auth-browser";
 const RECORDER_MIME_TYPES = [
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
@@ -85,6 +90,39 @@ function setupTheme() {
       if (!localStorage.getItem("videodrop-theme")) setTheme(event.matches ? "light" : "dark", false);
     });
   }
+}
+
+function browserCookieAuthAvailable() {
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function activeCookieBrowser() {
+  if (!browserCookieAuthAvailable() || !browserAuthToggle?.checked) return "";
+  return browserAuthSelect?.value || "edge";
+}
+
+function syncBrowserAuthSelectState() {
+  if (browserAuthSelect && browserAuthToggle) {
+    browserAuthSelect.disabled = !browserAuthToggle.checked;
+  }
+}
+
+function setupBrowserAuthControls() {
+  if (!browserAuthPanel || !browserAuthToggle || !browserAuthSelect) return;
+  if (!browserCookieAuthAvailable()) return;
+
+  browserAuthPanel.hidden = false;
+  browserAuthToggle.checked = localStorage.getItem(BROWSER_AUTH_ENABLED_STORAGE_KEY) === "1";
+  browserAuthSelect.value = localStorage.getItem(BROWSER_AUTH_BROWSER_STORAGE_KEY) || "edge";
+  syncBrowserAuthSelectState();
+
+  browserAuthToggle.addEventListener("change", () => {
+    localStorage.setItem(BROWSER_AUTH_ENABLED_STORAGE_KEY, browserAuthToggle.checked ? "1" : "0");
+    syncBrowserAuthSelectState();
+  });
+  browserAuthSelect.addEventListener("change", () => {
+    localStorage.setItem(BROWSER_AUTH_BROWSER_STORAGE_KEY, browserAuthSelect.value);
+  });
 }
 
 // Small formatting and timing helpers used by multiple UI states.
@@ -255,6 +293,8 @@ function renderPreview(data) {
 function downloadUrl(formatId, downloadToken = "") {
   const params = new URLSearchParams({ url: currentUrl, format_id: formatId });
   if (downloadToken) params.set("download_token", downloadToken);
+  const cookieBrowser = activeCookieBrowser();
+  if (cookieBrowser) params.set("cookie_browser", cookieBrowser);
   return `/api/download?${params.toString()}`;
 }
 
@@ -1197,12 +1237,15 @@ async function analyze(url) {
   const controller = new AbortController();
   activeController = controller;
   const timeoutId = window.setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
+  const cookieBrowser = activeCookieBrowser();
+  const payload = { url: currentUrl };
+  if (cookieBrowser) payload.cookie_browser = cookieBrowser;
 
   try {
     const response = await fetch("/api/probe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: currentUrl }),
+      body: JSON.stringify(payload),
       signal: controller.signal
     });
     const data = await response.json();
@@ -1274,5 +1317,6 @@ window.addEventListener("beforeunload", () => {
 });
 
 setupTheme();
+setupBrowserAuthControls();
 setupScreenRecorderSupport();
 if (copyrightYear) copyrightYear.textContent = String(new Date().getFullYear());

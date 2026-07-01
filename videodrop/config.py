@@ -31,6 +31,9 @@ logger = logging.getLogger("uvicorn.error")
 
 FORMAT_ID_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 AUDIO_MP3_FORMAT_ID = "audio-mp3"
+SUPPORTED_COOKIE_BROWSERS = frozenset(
+    {"brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi", "whale"}
+)
 
 SITE_NAME = "VideoDrop"
 SITE_DESCRIPTION = "Baixador de vídeos em MP4 para posts públicos do X, Instagram, Facebook e outras plataformas compatíveis."
@@ -67,7 +70,20 @@ def _ffmpeg_location() -> str | None:
     return shutil.which("ffmpeg")
 
 
-def _base_ydl_opts() -> dict[str, Any]:
+def normalize_cookie_browser(cookie_browser: str | None) -> str | None:
+    """Normalize a browser name accepted by yt-dlp's cookies-from-browser option."""
+    if not cookie_browser:
+        return None
+
+    normalized = cookie_browser.strip().lower()
+    if not normalized:
+        return None
+    if normalized not in SUPPORTED_COOKIE_BROWSERS:
+        raise ValueError(f"Navegador de cookies invalido: {cookie_browser}")
+    return normalized
+
+
+def _base_ydl_opts(cookie_browser: str | None = None) -> dict[str, Any]:
     """Build the shared yt-dlp options used by probe and download flows."""
     opts: dict[str, Any] = {
         "quiet": True,
@@ -81,4 +97,7 @@ def _base_ydl_opts() -> dict[str, Any]:
     ffmpeg = _ffmpeg_location()
     if ffmpeg:
         opts["ffmpeg_location"] = ffmpeg
+    normalized_cookie_browser = normalize_cookie_browser(cookie_browser)
+    if normalized_cookie_browser:
+        opts["cookiesfrombrowser"] = (normalized_cookie_browser,)
     return opts

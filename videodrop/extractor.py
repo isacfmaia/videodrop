@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException
 from yt_dlp import YoutubeDL
+from yt_dlp.cookies import CookieLoadError
 from yt_dlp.utils import DownloadError
 
 from .config import (
@@ -23,8 +24,52 @@ from .config import (
 )
 from .thumbnails import register_thumbnail
 
-_probe_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-_probe_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+_probe_cache: dict[tuple[str, str | None], tuple[float, dict[str, Any]]] = {}
+_probe_locks: defaultdict[tuple[str, str | None], asyncio.Lock] = defaultdict(asyncio.Lock)
+
+_BROWSER_LABELS = {
+    "brave": "Brave",
+    "chrome": "Chrome",
+    "chromium": "Chromium",
+    "edge": "Edge",
+    "firefox": "Firefox",
+    "opera": "Opera",
+    "safari": "Safari",
+    "vivaldi": "Vivaldi",
+    "whale": "Whale",
+}
+_INSTAGRAM_EMPTY_MEDIA_MARKER = "Instagram sent an empty media response"
+
+
+def _browser_label(cookie_browser: str | None) -> str:
+    if not cookie_browser:
+        return "navegador"
+    return _BROWSER_LABELS.get(cookie_browser, cookie_browser.title())
+
+
+def _friendly_ydl_error_detail(exc: Exception, cookie_browser: str | None = None) -> str:
+    """Convert common yt-dlp failures into user-facing Portuguese messages."""
+    if isinstance(exc, CookieLoadError):
+        return (
+            f"Nao consegui ler os cookies do {_browser_label(cookie_browser)}. "
+            "Feche esse navegador por alguns segundos ou escolha outro em que voce esteja "
+            "logado no Instagram."
+        )
+
+    message = str(exc).splitlines()[-1]
+    if _INSTAGRAM_EMPTY_MEDIA_MARKER in message:
+        if cookie_browser:
+            return (
+                f"O Instagram ainda nao entregou esse video usando o login do {_browser_label(cookie_browser)}. "
+                "Abra o Instagram nesse navegador, confirme que a conta consegue ver o post "
+                "e tente novamente."
+            )
+        return (
+            "O Instagram nao entregou esse video em modo publico. No app local, ligue "
+            "Login do navegador e escolha o navegador em que voce esta logado no Instagram."
+        )
+
+    return message
 
 
 def _first_video(info: dict[str, Any]) -> dict[str, Any]:
@@ -159,10 +204,10 @@ def _build_format_options(info: dict[str, Any]) -> list[dict[str, Any]]:
     return options
 
 
-def _probe_sync(url: str) -> dict[str, Any]:
+def _probe_sync(url: str, cookie_browser: str | None = None) -> dict[str, Any]:
     """Run yt-dlp synchronously and return UI-ready metadata."""
-    logger.info("Iniciando analise com yt-dlp: %s", url)
-    with YoutubeDL({**_base_ydl_opts(), "skip_download": True}) as ydl:
+    logger.info("Iniciando analise com yt-dlp: %s cookies=%s", url, cookie_browser or "nao")
+    with YoutubeDL({**_base_ydl_opts(cookie_browser), "skip_download": True}) as ydl:
         info = _first_video(ydl.extract_info(url, download=False))
 
     options = _build_format_options(info)
@@ -195,59 +240,63 @@ def _probe_sync(url: str) -> dict[str, Any]:
     }
 
 
-def _get_cached_probe(url: str) -> dict[str, Any] | None:
-    cached = _probe_cache.get(url)
+def _get_cached_probe(cache_key: tuple[str, str | None]) -> dict[str, Any] | None:
+    cached = _probe_cache.get(cache_key)
     if not cached:
         return None
 
     expires_at, data = cached
     if expires_at <= time.time():
-        _probe_cache.pop(url, None)
+        _probe_cache.pop(cache_key, None)
         return None
 
     return data
 
 
-def _set_cached_probe(url: str, data: dict[str, Any]) -> None:
+def _set_cached_probe(cache_key: tuple[str, str | None], data: dict[str, Any]) -> None:
     """Store probe results briefly to avoid repeated slow extractor calls."""
     if len(_probe_cache) > 200:
         now = time.time()
-        expired_urls = [cache_url for cache_url, (expires_at, _) in _probe_cache.items() if expires_at <= now]
-        for cache_url in expired_urls:
-            _probe_cache.pop(cache_url, None)
+        expired_keys = [key for key, (expires_at, _) in _probe_cache.items() if expires_at <= now]
+        for key in expired_keys:
+            _probe_cache.pop(key, None)
 
-    _probe_cache[url] = (time.time() + PROBE_CACHE_TTL_SECONDS, data)
+    _probe_cache[cache_key] = (time.time() + PROBE_CACHE_TTL_SECONDS, data)
 
 
-async def probe_url(url: str) -> dict[str, Any]:
+async def probe_url(url: str, cookie_browser: str | None = None) -> dict[str, Any]:
     """Analyze a URL with lock + cache so duplicate requests share work."""
-    cached_probe = _get_cached_probe(url)
+    cache_key = (url, cookie_browser)
+    cached_probe = _get_cached_probe(cache_key)
     if cached_probe:
-        logger.info("Cache hit para probe: %s", url)
+        logger.info("Cache hit para probe: %s cookies=%s", url, cookie_browser or "nao")
         return cached_probe
 
-    async with _probe_locks[url]:
-        cached_probe = _get_cached_probe(url)
+    async with _probe_locks[cache_key]:
+        cached_probe = _get_cached_probe(cache_key)
         if cached_probe:
-            logger.info("Cache hit para probe apos aguardar lock: %s", url)
+            logger.info("Cache hit para probe apos aguardar lock: %s cookies=%s", url, cookie_browser or "nao")
             return cached_probe
 
         await PROBE_SEMAPHORE.acquire()
         try:
-            data = await asyncio.wait_for(asyncio.to_thread(_probe_sync, url), timeout=PROBE_TIMEOUT_SECONDS)
-            _set_cached_probe(url, data)
+            probe_args = (url,) if cookie_browser is None else (url, cookie_browser)
+            data = await asyncio.wait_for(
+                asyncio.to_thread(_probe_sync, *probe_args),
+                timeout=PROBE_TIMEOUT_SECONDS,
+            )
+            _set_cached_probe(cache_key, data)
             return data
         except HTTPException:
             raise
         except asyncio.TimeoutError as exc:
             logger.exception("Timeout analisando URL: %s", url)
             raise HTTPException(status_code=504, detail="A análise demorou demais. Tente novamente em instantes.") from exc
-        except DownloadError as exc:
+        except (CookieLoadError, DownloadError) as exc:
             logger.exception("yt-dlp falhou analisando URL: %s", url)
-            raise HTTPException(status_code=422, detail=str(exc).splitlines()[-1]) from exc
+            raise HTTPException(status_code=422, detail=_friendly_ydl_error_detail(exc, cookie_browser)) from exc
         except Exception as exc:
             logger.exception("Erro inesperado analisando URL: %s", url)
             raise HTTPException(status_code=500, detail="Não consegui analisar esse link agora.") from exc
         finally:
             PROBE_SEMAPHORE.release()
-

@@ -9,6 +9,8 @@ from pathlib import Path
 
 from fastapi import HTTPException
 from yt_dlp import YoutubeDL
+from yt_dlp.cookies import CookieLoadError
+from yt_dlp.utils import DownloadError
 
 from .config import (
     AUDIO_MP3_FORMAT_ID,
@@ -18,7 +20,7 @@ from .config import (
     _ffmpeg_location,
     logger,
 )
-from .extractor import _first_video
+from .extractor import _first_video, _friendly_ydl_error_detail
 
 
 def _hidden_ffmpeg_window_kwargs() -> dict:
@@ -34,13 +36,19 @@ def _hidden_ffmpeg_window_kwargs() -> dict:
     }
 
 
-def _select_format(url: str, format_id: str) -> tuple[str, bool]:
+def _select_format(url: str, format_id: str, cookie_browser: str | None = None) -> tuple[str, bool]:
     """Translate a UI format id into a yt-dlp selector."""
     if not FORMAT_ID_RE.match(format_id):
         raise HTTPException(status_code=400, detail="Formato inválido.")
 
-    with YoutubeDL({**_base_ydl_opts(), "skip_download": True}) as ydl:
-        info = _first_video(ydl.extract_info(url, download=False))
+    try:
+        with YoutubeDL({**_base_ydl_opts(cookie_browser), "skip_download": True}) as ydl:
+            info = _first_video(ydl.extract_info(url, download=False))
+    except (CookieLoadError, DownloadError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_friendly_ydl_error_detail(exc, cookie_browser),
+        ) from exc
 
     for fmt in info.get("formats") or []:
         if str(fmt.get("format_id")) == format_id:
@@ -154,7 +162,7 @@ def _make_whatsapp_compatible_mp4(file_path: Path) -> Path:
     return output_path
 
 
-def _download_sync(url: str, format_id: str, temp_dir: Path) -> Path:
+def _download_sync(url: str, format_id: str, temp_dir: Path, cookie_browser: str | None = None) -> Path:
     """Download one selected video format or extract MP3 audio into temp_dir."""
     if format_id == AUDIO_MP3_FORMAT_ID:
         if not _ffmpeg_location():
@@ -164,7 +172,7 @@ def _download_sync(url: str, format_id: str, temp_dir: Path) -> Path:
             )
 
         opts = {
-            **_base_ydl_opts(),
+            **_base_ydl_opts(cookie_browser),
             "format": "bestaudio/best",
             "outtmpl": str(temp_dir / "%(title).180B-%(id)s.%(ext)s"),
             "restrictfilenames": True,
@@ -178,8 +186,14 @@ def _download_sync(url: str, format_id: str, temp_dir: Path) -> Path:
             ],
         }
 
-        with YoutubeDL(opts) as ydl:
-            ydl.download([url])
+        try:
+            with YoutubeDL(opts) as ydl:
+                ydl.download([url])
+        except (CookieLoadError, DownloadError) as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=_friendly_ydl_error_detail(exc, cookie_browser),
+            ) from exc
 
         files = sorted(temp_dir.glob("*"), key=lambda path: path.stat().st_mtime, reverse=True)
         audio = next((path for path in files if path.is_file() and path.suffix.lower() == ".mp3"), None)
@@ -187,9 +201,9 @@ def _download_sync(url: str, format_id: str, temp_dir: Path) -> Path:
             raise HTTPException(status_code=500, detail="O download terminou, mas o MP3 final não foi encontrado.")
         return audio
 
-    selector, _ = _select_format(url, format_id)
+    selector, _ = _select_format(url, format_id, cookie_browser)
     opts = {
-        **_base_ydl_opts(),
+        **_base_ydl_opts(cookie_browser),
         "format": selector,
         "merge_output_format": "mp4",
         "outtmpl": str(temp_dir / "%(title).180B-%(id)s.%(ext)s"),
@@ -197,8 +211,14 @@ def _download_sync(url: str, format_id: str, temp_dir: Path) -> Path:
         "noplaylist": True,
     }
 
-    with YoutubeDL(opts) as ydl:
-        ydl.download([url])
+    try:
+        with YoutubeDL(opts) as ydl:
+            ydl.download([url])
+    except (CookieLoadError, DownloadError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=_friendly_ydl_error_detail(exc, cookie_browser),
+        ) from exc
 
     files = sorted(temp_dir.glob("*"), key=lambda path: path.stat().st_mtime, reverse=True)
     video = next((path for path in files if path.is_file() and path.suffix.lower() in {".mp4", ".m4v", ".mov", ".webm"}), None)
@@ -208,13 +228,18 @@ def _download_sync(url: str, format_id: str, temp_dir: Path) -> Path:
     return _make_whatsapp_compatible_mp4(video)
 
 
-async def download_to_temp(url: str, format_id: str, temp_dir: Path) -> Path:
+async def download_to_temp(url: str, format_id: str, temp_dir: Path, cookie_browser: str | None = None) -> Path:
     """Run a serialized download in a worker thread."""
     acquired = False
     try:
         await DOWNLOAD_SEMAPHORE.acquire()
         acquired = True
-        return await asyncio.to_thread(_download_sync, url, format_id, temp_dir)
+        download_args = (
+            (url, format_id, temp_dir)
+            if cookie_browser is None
+            else (url, format_id, temp_dir, cookie_browser)
+        )
+        return await asyncio.to_thread(_download_sync, *download_args)
     finally:
         if acquired:
             DOWNLOAD_SEMAPHORE.release()
