@@ -55,7 +55,7 @@
         document.documentElement.dataset.theme = storedTheme || (prefersLight ? "light" : "dark");
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260701-cookie-fallback" />
+    <link rel="stylesheet" href="/styles.css?v=20260701-dedicated-firefox" />
   </head>
   <body>
     <button class="theme-toggle" id="themeToggle" type="button" aria-label="Alternar tema" title="Alternar tema">
@@ -95,17 +95,12 @@
             <label class="toggle-row" for="browserAuthToggle">
               <input id="browserAuthToggle" type="checkbox" />
               <span class="toggle-switch" aria-hidden="true"></span>
-              <span>Login do navegador</span>
+              <span>Login dedicado do VideoDrop</span>
             </label>
-            <label class="browser-auth-select-label" for="browserAuthSelect">
-              <span>Navegador</span>
-              <select id="browserAuthSelect">
-                <option value="firefox">Firefox</option>
-                <option value="edge">Edge</option>
-                <option value="chrome">Chrome</option>
-                <option value="brave">Brave</option>
-              </select>
-            </label>
+            <button class="ghost-button browser-login-button" id="browserLoginButton" type="button">
+              Entrar no Instagram
+            </button>
+            <p class="browser-auth-note" id="browserAuthNote">Requer Firefox instalado.</p>
           </div>
           <div class="paste-hint" id="pasteHint">Ctrl + V em qualquer lugar detecta URLs automaticamente</div>
         </form>
@@ -214,6 +209,6 @@
       </article>
     </template>
 
-    <script src="/app.js?v=20260701-cookie-fallback" type="module"></script>
+    <script src="/app.js?v=20260701-dedicated-firefox" type="module"></script>
   </body>
 </html>

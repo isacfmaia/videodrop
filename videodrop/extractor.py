@@ -41,6 +41,7 @@ _BROWSER_LABELS = {
 _INSTAGRAM_EMPTY_MEDIA_MARKER = "Instagram sent an empty media response"
 _CHROMIUM_COOKIE_COPY_MARKER = "Could not copy Chrome cookie database"
 _CHROMIUM_COOKIE_DPAPI_MARKER = "Failed to decrypt with DPAPI"
+_FIREFOX_COOKIE_DB_MARKER = "could not find firefox cookies database"
 _CHROMIUM_COOKIE_BROWSERS = {
     "brave",
     "chrome",
@@ -77,27 +78,36 @@ def _friendly_ydl_error_detail(exc: Exception, cookie_browser: str | None = None
         return (
             f"O Windows nao liberou a descriptografia dos cookies do {browser}. "
             "Abra o VideoDrop no mesmo usuario do Windows em que voce usa esse navegador, "
-            "sem executar como administrador. Se continuar, escolha Firefox ou outro navegador "
-            "em que voce esteja logado no Instagram."
+            "sem executar como administrador. Para Instagram, use o Login dedicado do VideoDrop pelo Firefox."
+        )
+
+    if cookie_browser == "firefox" and _FIREFOX_COOKIE_DB_MARKER in message.lower():
+        return (
+            "Nao encontrei cookies do Login dedicado do VideoDrop. Clique em Entrar no Instagram, "
+            "faca login na janela do Firefox aberta pelo app e tente novamente."
         )
 
     if isinstance(exc, CookieLoadError):
+        if cookie_browser == "firefox":
+            return (
+                "Nao consegui ler os cookies do Login dedicado do VideoDrop. Feche a janela do Firefox "
+                "aberta pelo app, clique em Entrar no Instagram e tente novamente."
+            )
         return (
             f"Nao consegui ler os cookies do {_browser_label(cookie_browser)}. "
-            "Feche esse navegador por alguns segundos ou escolha outro em que voce esteja "
-            "logado no Instagram."
+            "Feche esse navegador por alguns segundos e tente novamente."
         )
 
     if _INSTAGRAM_EMPTY_MEDIA_MARKER in message:
         if cookie_browser:
             return (
-                f"O Instagram ainda nao entregou esse video usando o login do {_browser_label(cookie_browser)}. "
-                "Abra o Instagram nesse navegador, confirme que a conta consegue ver o post "
+                "O Instagram ainda nao entregou esse video usando o Login dedicado do VideoDrop. "
+                "Abra o Instagram na janela do Firefox criada pelo app, confirme que a conta consegue ver o post "
                 "e tente novamente."
             )
         return (
             "O Instagram nao entregou esse video em modo publico. No app local, ligue "
-            "Login do navegador e escolha o navegador em que voce esta logado no Instagram."
+            "Login dedicado do VideoDrop, entre no Instagram pela janela do Firefox e tente novamente."
         )
 
     return message

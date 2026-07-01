@@ -345,14 +345,25 @@ select:disabled {
   margin-top: 12px;
 }
 
-.browser-auth-select-label {
+.browser-login-button {
   min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  padding: 0 16px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.browser-login-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.browser-auth-note {
+  margin: 0;
   color: var(--muted);
   font-size: 0.9rem;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .results {

@@ -31,9 +31,8 @@ logger = logging.getLogger("uvicorn.error")
 
 FORMAT_ID_RE = re.compile(r"^[A-Za-z0-9._:-]+$")
 AUDIO_MP3_FORMAT_ID = "audio-mp3"
-SUPPORTED_COOKIE_BROWSERS = frozenset(
-    {"brave", "chrome", "chromium", "edge", "firefox", "opera", "safari", "vivaldi", "whale"}
-)
+DEDICATED_COOKIE_BROWSER = "firefox"
+SUPPORTED_COOKIE_BROWSERS = frozenset({DEDICATED_COOKIE_BROWSER})
 
 SITE_NAME = "VideoDrop"
 SITE_DESCRIPTION = "Baixador de vídeos em MP4 para posts públicos do X, Instagram, Facebook e outras plataformas compatíveis."
@@ -60,6 +59,26 @@ DOWNLOAD_SEMAPHORE = asyncio.Semaphore(int(os.getenv("DOWNLOAD_CONCURRENCY", "1"
 BLOCKED_HOSTNAMES = {"localhost", "localhost.localdomain"}
 
 
+def videodrop_app_data_dir() -> Path:
+    """Return the per-user app data directory without creating it."""
+    configured_dir = os.getenv("VIDEODROP_DATA_DIR", "").strip()
+    if configured_dir:
+        return Path(configured_dir).expanduser()
+
+    base = os.getenv("LOCALAPPDATA")
+    root = Path(base) if base else Path.home() / "AppData" / "Local"
+    return root / "VideoDrop"
+
+
+def dedicated_firefox_profile_dir(create: bool = False) -> Path:
+    """Return the Firefox profile used only for VideoDrop Instagram login."""
+    configured_dir = os.getenv("VIDEODROP_FIREFOX_PROFILE_DIR", "").strip()
+    path = Path(configured_dir).expanduser() if configured_dir else videodrop_app_data_dir() / "FirefoxProfile"
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _ffmpeg_location() -> str | None:
     """Return the bundled or system ffmpeg path when available."""
     if imageio_ffmpeg is not None:
@@ -71,7 +90,7 @@ def _ffmpeg_location() -> str | None:
 
 
 def normalize_cookie_browser(cookie_browser: str | None) -> str | None:
-    """Normalize a browser name accepted by yt-dlp's cookies-from-browser option."""
+    """Normalize the only browser cookie source accepted by the local app."""
     if not cookie_browser:
         return None
 
@@ -99,5 +118,5 @@ def _base_ydl_opts(cookie_browser: str | None = None) -> dict[str, Any]:
         opts["ffmpeg_location"] = ffmpeg
     normalized_cookie_browser = normalize_cookie_browser(cookie_browser)
     if normalized_cookie_browser:
-        opts["cookiesfrombrowser"] = (normalized_cookie_browser,)
+        opts["cookiesfrombrowser"] = (normalized_cookie_browser, str(dedicated_firefox_profile_dir()))
     return opts

@@ -15,6 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
 from . import downloads, extractor, thumbnails
+from .browser_auth import FirefoxNotFoundError, launch_dedicated_firefox_login
 from .config import (
     MAX_RECORDING_UPLOAD_BYTES,
     STATIC_DIR,
@@ -36,7 +37,7 @@ def _cookie_browser_for_request(request: Request, cookie_browser: str | None) ->
     if not cookie_browser:
         return None
     if not _is_local_client(request):
-        raise HTTPException(status_code=403, detail="Login do navegador disponivel apenas no app local.")
+        raise HTTPException(status_code=403, detail="Login dedicado disponivel apenas no app local.")
     try:
         return normalize_cookie_browser(cookie_browser)
     except ValueError as exc:
@@ -127,6 +128,20 @@ async def desktop_open(request: Request) -> dict[str, bool]:
 
     await asyncio.to_thread(callback)
     return {"ok": True}
+
+
+@router.post("/api/browser-login/instagram")
+async def browser_login_instagram(request: Request) -> dict[str, str | bool]:
+    if not _is_local_client(request):
+        raise HTTPException(status_code=403, detail="Login dedicado disponivel apenas no app local.")
+
+    try:
+        return await asyncio.to_thread(launch_dedicated_firefox_login)
+    except FirefoxNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.exception("Falha abrindo Firefox dedicado para login do Instagram.")
+        raise HTTPException(status_code=500, detail="Nao consegui abrir o Firefox para login.") from exc
 
 
 @router.post("/api/probe")

@@ -23,7 +23,7 @@ const microphoneToggle = document.querySelector("#microphoneToggle");
 const recorderSupportNote = document.querySelector("#recorderSupportNote");
 const browserAuthPanel = document.querySelector("#browserAuthPanel");
 const browserAuthToggle = document.querySelector("#browserAuthToggle");
-const browserAuthSelect = document.querySelector("#browserAuthSelect");
+const browserLoginButton = document.querySelector("#browserLoginButton");
 const recordingDock = document.querySelector("#recordingDock");
 const recordingTimer = document.querySelector("#recordingTimer");
 const recordingStopButton = document.querySelector("#recordingStopButton");
@@ -32,10 +32,11 @@ const DOWNLOAD_READY_TIMEOUT_MS = 30 * 60 * 1000;
 const DOWNLOAD_READY_POLL_MS = 400;
 const DOWNLOAD_READY_COOKIE_PREFIX = "videodrop_download_";
 const BROWSER_AUTH_ENABLED_STORAGE_KEY = "videodrop-browser-auth-enabled";
-const BROWSER_AUTH_BROWSER_STORAGE_KEY = "videodrop-browser-auth-browser";
-const CHROMIUM_COOKIE_ERROR_MARKERS = [
-  "bloqueou o banco de cookies",
-  "descriptografia dos cookies"
+const DEDICATED_LOGIN_ERROR_MARKERS = [
+  "instagram nao entregou",
+  "instagram ainda nao entregou",
+  "login dedicado do videodrop",
+  "cookies do login dedicado"
 ];
 const RECORDER_MIME_TYPES = [
   "video/webm;codecs=vp9,opus",
@@ -100,42 +101,69 @@ function browserCookieAuthAvailable() {
   return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 }
 
-function activeCookieBrowser() {
+function isInstagramUrl(value) {
+  try {
+    const url = new URL(value.trim());
+    const host = url.hostname.toLowerCase();
+    return host === "instagram.com" || host.endsWith(".instagram.com");
+  } catch {
+    return false;
+  }
+}
+
+function activeCookieBrowser(urlValue = currentUrl || input?.value || "") {
   if (!browserCookieAuthAvailable() || !browserAuthToggle?.checked) return "";
-  return browserAuthSelect?.value || "firefox";
+  return isInstagramUrl(urlValue) ? "firefox" : "";
 }
 
 function syncBrowserAuthSelectState() {
-  if (browserAuthSelect && browserAuthToggle) {
-    browserAuthSelect.disabled = !browserAuthToggle.checked;
+  if (browserLoginButton && browserAuthToggle) {
+    browserLoginButton.disabled = !browserAuthToggle.checked;
   }
 }
 
 function setupBrowserAuthControls() {
-  if (!browserAuthPanel || !browserAuthToggle || !browserAuthSelect) return;
+  if (!browserAuthPanel || !browserAuthToggle || !browserLoginButton) return;
   if (!browserCookieAuthAvailable()) return;
 
   browserAuthPanel.hidden = false;
   browserAuthToggle.checked = localStorage.getItem(BROWSER_AUTH_ENABLED_STORAGE_KEY) === "1";
-  browserAuthSelect.value = localStorage.getItem(BROWSER_AUTH_BROWSER_STORAGE_KEY) || "firefox";
   syncBrowserAuthSelectState();
 
   browserAuthToggle.addEventListener("change", () => {
     localStorage.setItem(BROWSER_AUTH_ENABLED_STORAGE_KEY, browserAuthToggle.checked ? "1" : "0");
     syncBrowserAuthSelectState();
   });
-  browserAuthSelect.addEventListener("change", () => {
-    localStorage.setItem(BROWSER_AUTH_BROWSER_STORAGE_KEY, browserAuthSelect.value);
-  });
+  browserLoginButton.addEventListener("click", openDedicatedInstagramLogin);
 }
 
-function setCookieBrowser(browser) {
-  if (!browserAuthToggle || !browserAuthSelect) return;
+function enableDedicatedLogin() {
+  if (!browserAuthToggle) return;
   browserAuthToggle.checked = true;
-  browserAuthSelect.value = browser;
   localStorage.setItem(BROWSER_AUTH_ENABLED_STORAGE_KEY, "1");
-  localStorage.setItem(BROWSER_AUTH_BROWSER_STORAGE_KEY, browser);
   syncBrowserAuthSelectState();
+}
+
+async function openDedicatedInstagramLogin() {
+  if (!browserCookieAuthAvailable() || !browserLoginButton) return;
+
+  enableDedicatedLogin();
+  const previousLabel = browserLoginButton.textContent;
+  browserLoginButton.disabled = true;
+  browserLoginButton.textContent = "Abrindo...";
+  pasteHint.textContent = "Abrindo login do Instagram no Firefox...";
+
+  try {
+    const response = await fetch("/api/browser-login/instagram", { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.detail || "Nao consegui abrir o Firefox.");
+    pasteHint.textContent = "Faca login no Instagram pela janela do Firefox aberta pelo VideoDrop.";
+  } catch (error) {
+    setError(error.message);
+  } finally {
+    browserLoginButton.textContent = previousLabel;
+    syncBrowserAuthSelectState();
+  }
 }
 
 // Small formatting and timing helpers used by multiple UI states.
@@ -186,32 +214,36 @@ function escapeHtml(value) {
   }[char]));
 }
 
-function shouldOfferFirefoxRetry(message) {
-  if (!browserCookieAuthAvailable() || !browserAuthToggle || !browserAuthSelect) return false;
+function shouldOfferDedicatedLogin(message) {
+  if (!browserCookieAuthAvailable() || !browserAuthToggle || !browserLoginButton) return false;
   const normalizedMessage = message.toLowerCase();
-  return CHROMIUM_COOKIE_ERROR_MARKERS.some((marker) => normalizedMessage.includes(marker));
+  return DEDICATED_LOGIN_ERROR_MARKERS.some((marker) => normalizedMessage.includes(marker));
 }
 
 function renderErrorActions(message) {
-  if (!shouldOfferFirefoxRetry(message)) return "";
+  if (!shouldOfferDedicatedLogin(message)) return "";
   return `
     <div class="error-actions">
-      <button class="ghost-button error-retry-button" type="button" data-retry-cookie-browser="firefox">
-        Tentar com Firefox
+      <button class="ghost-button error-retry-button" type="button" data-open-instagram-login>
+        Entrar no Instagram
       </button>
-      <p>Entre no Instagram pelo Firefox antes da tentativa, se ainda nao estiver logado.</p>
+      <button class="ghost-button error-retry-button" type="button" data-retry-dedicated-login>
+        Tentar com login
+      </button>
+      <p>Use a janela do Firefox aberta pelo VideoDrop.</p>
     </div>
   `;
 }
 
 function wireErrorActions() {
-  const retryButton = results.querySelector("[data-retry-cookie-browser]");
-  if (!retryButton) return;
+  const loginButton = results.querySelector("[data-open-instagram-login]");
+  loginButton?.addEventListener("click", openDedicatedInstagramLogin);
 
+  const retryButton = results.querySelector("[data-retry-dedicated-login]");
+  if (!retryButton) return;
   retryButton.addEventListener("click", () => {
-    const browser = retryButton.dataset.retryCookieBrowser || "firefox";
-    setCookieBrowser(browser);
-    pasteHint.textContent = "Tentando de novo com Firefox...";
+    enableDedicatedLogin();
+    pasteHint.textContent = "Tentando de novo com Login dedicado...";
     if (currentUrl) analyze(currentUrl);
   });
 }
@@ -352,7 +384,7 @@ function renderPreview(data) {
 function downloadUrl(formatId, downloadToken = "") {
   const params = new URLSearchParams({ url: currentUrl, format_id: formatId });
   if (downloadToken) params.set("download_token", downloadToken);
-  const cookieBrowser = activeCookieBrowser();
+  const cookieBrowser = activeCookieBrowser(currentUrl);
   if (cookieBrowser) params.set("cookie_browser", cookieBrowser);
   return `/api/download?${params.toString()}`;
 }
@@ -1296,7 +1328,7 @@ async function analyze(url) {
   const controller = new AbortController();
   activeController = controller;
   const timeoutId = window.setTimeout(() => controller.abort(), ANALYZE_TIMEOUT_MS);
-  const cookieBrowser = activeCookieBrowser();
+  const cookieBrowser = activeCookieBrowser(currentUrl);
   const payload = { url: currentUrl };
   if (cookieBrowser) payload.cookie_browser = cookieBrowser;
 

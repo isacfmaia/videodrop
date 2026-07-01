@@ -45,7 +45,7 @@ A interface foi pensada para ser direta: colou a URL, o app analisa, mostra as o
 
 - Download de vídeos públicos em MP4 a partir de URLs compatíveis com `yt-dlp`.
 - Análise de URLs públicas do YouTube, X/Twitter, Instagram, Facebook e outras plataformas compatíveis com `yt-dlp`.
-- Uso opcional de cookies do navegador no app local para posts que exigem login, como alguns links do Instagram.
+- Login dedicado do VideoDrop via Firefox para posts do Instagram que exigem sessão.
 - Detecção automática de URL com `Ctrl + V` em qualquer lugar da página.
 - Lista de resoluções MP4 disponíveis com tamanho real ou estimado.
 - Download de áudio em MP3 quando há faixa de áudio disponível.
@@ -303,10 +303,9 @@ Para publicar com mais tranquilidade:
 ## ⚠️ Observações importantes
 
 - Links privados, restritos por login, idade, região ou cookies podem falhar.
-- No app local, a opção **Login do navegador** permite usar cookies do Edge, Chrome, Firefox ou Brave para conteúdos que a conta já consegue acessar no navegador.
-- Para Instagram no Windows, o Firefox costuma ser o caminho mais estável porque evita os bloqueios de cookies do Chrome/Chromium.
-- No Chrome/Chromium em Windows, talvez seja necessário fechar todas as janelas do navegador antes da análise para liberar o banco de cookies.
-- Se o Windows bloquear a descriptografia DPAPI dos cookies do Chrome/Chromium, o VideoDrop oferece uma nova tentativa com Firefox.
+- No app local, a opção **Login dedicado do VideoDrop** abre o Instagram em um perfil Firefox separado para links que exigem sessão.
+- Para usar esse fluxo, instale o Firefox e faça login no Instagram pela janela aberta pelo botão **Entrar no Instagram**.
+- O VideoDrop usa apenas esse perfil dedicado como fonte de cookies para Instagram; Chrome, Edge e Brave não são usados para autenticação.
 - O tamanho exibido depende dos metadados da plataforma; quando não há tamanho real, o app estima por bitrate e duração.
 - No Chrome/Windows, o compartilhamento nativo precisa de uma etapa extra: primeiro o app prepara o arquivo, depois o botão **Compartilhar agora** abre o painel do sistema.
 - O app não envia texto/link como fallback no compartilhamento.

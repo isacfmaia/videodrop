@@ -7,8 +7,8 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import app as app_module
-from videodrop import downloads, extractor, thumbnails
-from videodrop.config import _base_ydl_opts
+from videodrop import downloads, extractor, routers, thumbnails
+from videodrop.config import _base_ydl_opts, dedicated_firefox_profile_dir
 
 
 @pytest.fixture(autouse=True)
@@ -59,34 +59,57 @@ def test_screen_recorder_ui_is_available_with_audio_toggles_off_by_default():
     assert '<button class="ghost-button share-button" type="button">WhatsApp</button>' not in html
 
 
-def test_browser_login_controls_are_available_for_local_instagram_cookies():
+def test_dedicated_firefox_login_controls_are_available_for_local_instagram_cookies():
     html = (app_module.STATIC_DIR / "index.html").read_text(encoding="utf-8")
     app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'id="browserAuthPanel" hidden' in html
     assert 'id="browserAuthToggle" type="checkbox"' in html
-    assert 'id="browserAuthSelect"' in html
-    assert html.index('<option value="firefox">Firefox</option>') < html.index('<option value="edge">Edge</option>')
-    assert '<option value="edge">Edge</option>' in html
+    assert 'id="browserLoginButton"' in html
+    assert "Login dedicado do VideoDrop" in html
+    assert "Entrar no Instagram" in html
+    assert "Requer Firefox instalado." in html
+    assert 'id="browserAuthSelect"' not in html
+    assert '<option value="edge">Edge</option>' not in html
+    assert '<option value="chrome">Chrome</option>' not in html
+    assert '<option value="brave">Brave</option>' not in html
     assert "function browserCookieAuthAvailable()" in app_js
-    assert "activeCookieBrowser()" in app_js
-    assert 'localStorage.getItem(BROWSER_AUTH_BROWSER_STORAGE_KEY) || "firefox"' in app_js
+    assert "function isInstagramUrl(value)" in app_js
+    assert 'return isInstagramUrl(urlValue) ? "firefox" : "";' in app_js
+    assert 'fetch("/api/browser-login/instagram", { method: "POST" })' in app_js
     assert 'payload.cookie_browser = cookieBrowser' in app_js
     assert 'params.set("cookie_browser", cookieBrowser)' in app_js
 
 
-def test_chromium_cookie_errors_offer_firefox_retry_action():
+def test_instagram_cookie_errors_offer_dedicated_login_action():
     app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
     styles = (app_module.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
-    assert "CHROMIUM_COOKIE_ERROR_MARKERS" in app_js
-    assert '"descriptografia dos cookies"' in app_js
+    assert "DEDICATED_LOGIN_ERROR_MARKERS" in app_js
+    assert '"login dedicado do videodrop"' in app_js
     assert "function renderErrorActions(message)" in app_js
-    assert 'data-retry-cookie-browser="firefox"' in app_js
-    assert 'setCookieBrowser(browser);' in app_js
-    assert 'pasteHint.textContent = "Tentando de novo com Firefox..."' in app_js
+    assert "data-open-instagram-login" in app_js
+    assert "data-retry-dedicated-login" in app_js
+    assert "openDedicatedInstagramLogin" in app_js
+    assert 'pasteHint.textContent = "Tentando de novo com Login dedicado..."' in app_js
     assert "escapeHtml(message)" in app_js
     assert ".error-retry-button" in styles
+
+
+def test_dedicated_instagram_login_endpoint_launches_firefox(client, monkeypatch):
+    calls = []
+
+    def fake_launch():
+        calls.append(True)
+        return {"ok": True, "browser": "firefox"}
+
+    monkeypatch.setattr(routers, "launch_dedicated_firefox_login", fake_launch)
+
+    response = client.post("/api/browser-login/instagram")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "browser": "firefox"}
+    assert calls == [True]
 
 
 def test_screen_recorder_uses_browser_capture_and_share_apis():
@@ -226,7 +249,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.11"' in installer
+    assert '#define MyAppVersion "1.0.12"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
@@ -321,11 +344,21 @@ def test_probe_passes_local_browser_cookie_source(client, monkeypatch):
 
     response = client.post(
         "/api/probe",
-        json={"url": "https://www.instagram.com/reel/example/", "cookie_browser": "edge"},
+        json={"url": "https://www.instagram.com/reel/example/", "cookie_browser": "firefox"},
     )
 
     assert response.status_code == 200
-    assert calls == [("https://www.instagram.com/reel/example/", "edge")]
+    assert calls == [("https://www.instagram.com/reel/example/", "firefox")]
+
+
+def test_probe_rejects_non_firefox_cookie_source(client):
+    response = client.post(
+        "/api/probe",
+        json={"url": "https://www.instagram.com/reel/example/", "cookie_browser": "chrome"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Navegador de login invalido."
 
 
 def test_probe_returns_yt_dlp_error(client, monkeypatch):
@@ -433,16 +466,21 @@ def test_download_passes_local_browser_cookie_source(client, monkeypatch):
         params={
             "url": "https://www.instagram.com/reel/example/",
             "format_id": "720",
-            "cookie_browser": "edge",
+            "cookie_browser": "firefox",
         },
     )
 
     assert response.status_code == 200
-    assert calls == ["edge"]
+    assert calls == ["firefox"]
 
 
-def test_yt_dlp_options_include_browser_cookie_source():
-    assert _base_ydl_opts("edge")["cookiesfrombrowser"] == ("edge",)
+def test_yt_dlp_options_include_dedicated_firefox_profile(monkeypatch, tmp_path):
+    monkeypatch.setenv("VIDEODROP_FIREFOX_PROFILE_DIR", str(tmp_path / "FirefoxProfile"))
+
+    assert _base_ydl_opts("firefox")["cookiesfrombrowser"] == (
+        "firefox",
+        str(dedicated_firefox_profile_dir()),
+    )
 
 
 def test_chrome_cookie_copy_error_is_humanized():
@@ -473,6 +511,17 @@ def test_chrome_dpapi_error_is_humanized():
     assert "mesmo usuario do Windows" in detail
     assert "sem executar como administrador" in detail
     assert "github.com" not in detail
+
+
+def test_missing_dedicated_firefox_cookie_database_is_humanized():
+    detail = extractor._friendly_ydl_error_detail(
+        Exception("ERROR: could not find firefox cookies database in 'D:/VideoDrop/FirefoxProfile'"),
+        "firefox",
+    )
+
+    assert "Nao encontrei cookies do Login dedicado do VideoDrop" in detail
+    assert "Entrar no Instagram" in detail
+    assert "Firefox aberta pelo app" in detail
 
 
 def test_thumbnail_rejects_invalid_token(client):

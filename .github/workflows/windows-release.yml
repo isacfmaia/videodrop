@@ -65,12 +65,11 @@ jobs:
           VideoDrop $version
 
           Correcoes desta versao:
-          - adiciona Login do navegador no app local para links que exigem sessao;
-          - aplica cookies do navegador na analise, download e compartilhamento;
-          - mostra uma mensagem clara quando Chrome/Chromium bloqueia o banco de cookies;
-          - mostra uma mensagem clara quando o Windows bloqueia a descriptografia DPAPI dos cookies;
-          - oferece uma nova tentativa com Firefox quando o Chrome/Chromium bloqueia cookies;
-          - separa cache de analise com e sem cookies para evitar resultado misturado;
+          - substitui o seletor de navegadores por Login dedicado do VideoDrop via Firefox;
+          - abre o Instagram em um perfil Firefox separado para autenticar downloads;
+          - usa o perfil Firefox dedicado na analise, download e compartilhamento de links do Instagram;
+          - rejeita Chrome, Edge e Brave como fonte de cookies para evitar bloqueios DPAPI/App-Bound;
+          - orienta instalar Firefox quando ele nao estiver disponivel;
           - atualiza dependencias antes do build Windows.
 
           SHA-256 do instalador:
