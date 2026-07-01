@@ -105,20 +105,19 @@ function isInstagramUrl(value) {
   }
 }
 
-function isInstagramContext(urlValue = "", data = null) {
-  const site = String(data?.site || "").toLowerCase();
-  return isInstagramUrl(urlValue) || site.includes("instagram") || isInstagramUrl(data?.webpage_url || "");
-}
-
 function activeCookieBrowser(urlValue = currentUrl || input?.value || "") {
   if (!browserCookieAuthAvailable() || !browserAuthToggle?.checked) return "";
   return isInstagramUrl(urlValue) ? "firefox" : "";
 }
 
-function syncBrowserAuthVisibility(urlValue = input?.value || currentUrl || "", data = null) {
+function hideBrowserAuthPrompt() {
   if (!browserAuthPanel) return;
-  const shouldShow = browserCookieAuthAvailable() && isInstagramContext(urlValue, data);
-  browserAuthPanel.hidden = !shouldShow;
+  browserAuthPanel.hidden = true;
+}
+
+function showBrowserAuthPromptForFailedInstagram(urlValue) {
+  if (!browserAuthPanel) return;
+  browserAuthPanel.hidden = !(browserCookieAuthAvailable() && isInstagramUrl(urlValue));
 }
 
 function syncBrowserAuthSelectState() {
@@ -132,7 +131,7 @@ function setupBrowserAuthControls() {
   if (!browserCookieAuthAvailable()) return;
 
   browserAuthToggle.checked = localStorage.getItem(BROWSER_AUTH_ENABLED_STORAGE_KEY) === "1";
-  syncBrowserAuthVisibility();
+  hideBrowserAuthPrompt();
   syncBrowserAuthSelectState();
 
   browserAuthToggle.addEventListener("change", () => {
@@ -1299,7 +1298,7 @@ async function analyze(url) {
   closeShareSheet();
   clearRecordingResultState();
   input.value = currentUrl;
-  syncBrowserAuthVisibility(currentUrl);
+  hideBrowserAuthPrompt();
   setLoading(currentUrl);
   setAnalyzingState(true);
   await waitForPaint();
@@ -1323,7 +1322,7 @@ async function analyze(url) {
     if (runId !== analyzeRunId) return;
 
     currentData = data;
-    syncBrowserAuthVisibility(currentUrl, data);
+    hideBrowserAuthPrompt();
     renderPreview(data);
     renderFormats(data);
     if (cookieBrowser) closeDedicatedInstagramLogin();
@@ -1334,6 +1333,7 @@ async function analyze(url) {
       ? "A análise demorou demais. Tente novamente em instantes."
       : error.message;
     setError(message);
+    showBrowserAuthPromptForFailedInstagram(currentUrl);
   } finally {
     window.clearTimeout(timeoutId);
     if (activeController === controller) activeController = null;
@@ -1349,7 +1349,7 @@ form.addEventListener("submit", (event) => {
 
 // Event wiring.
 input.addEventListener("input", () => {
-  syncBrowserAuthVisibility(input.value);
+  hideBrowserAuthPrompt();
 });
 
 themeToggle?.addEventListener("click", () => {
@@ -1376,7 +1376,7 @@ window.addEventListener("paste", (event) => {
   event.preventDefault();
   pasteHint.textContent = "URL detectada. Carregando opções...";
   pasteHint.classList.add("flash");
-  syncBrowserAuthVisibility(text);
+  hideBrowserAuthPrompt();
   analyze(text);
   window.setTimeout(() => {
     pasteHint.textContent = "Ctrl + V em qualquer lugar detecta URLs automaticamente";

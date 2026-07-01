@@ -1,5 +1,5 @@
 #define MyAppName "VideoDrop"
-#define MyAppVersion "1.0.15"
+#define MyAppVersion "1.0.16"
 #define MyAppPublisher "Isac Maia"
 #define MyAppExeName "VideoDrop.exe"
 

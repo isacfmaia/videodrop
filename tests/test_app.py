@@ -75,14 +75,15 @@ def test_dedicated_firefox_login_controls_are_available_for_local_instagram_cook
     assert '<option value="brave">Brave</option>' not in html
     assert "function browserCookieAuthAvailable()" in app_js
     assert "function isInstagramUrl(value)" in app_js
-    assert "function isInstagramContext(urlValue" in app_js
-    assert "function syncBrowserAuthVisibility" in app_js
-    assert "browserAuthPanel.hidden = !shouldShow;" in app_js
+    assert "function hideBrowserAuthPrompt()" in app_js
+    assert "function showBrowserAuthPromptForFailedInstagram(urlValue)" in app_js
+    assert "browserAuthPanel.hidden = !(browserCookieAuthAvailable() && isInstagramUrl(urlValue));" in app_js
     assert 'return isInstagramUrl(urlValue) ? "firefox" : "";' in app_js
     assert 'fetch("/api/browser-login/instagram", { method: "POST" })' in app_js
     assert 'fetch("/api/browser-login/instagram/close", { method: "POST" })' in app_js
     assert 'input.addEventListener("input", () => {' in app_js
-    assert "syncBrowserAuthVisibility(currentUrl, data);" in app_js
+    assert "showBrowserAuthPromptForFailedInstagram(currentUrl);" in app_js
+    assert "syncBrowserAuthVisibility" not in app_js
     assert "if (cookieBrowser) closeDedicatedInstagramLogin();" in app_js
     assert "browserLoginButton.disabled = false;" in app_js
     assert "browserLoginButton.disabled = !browserAuthToggle.checked" not in app_js
@@ -326,7 +327,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.15"' in installer
+    assert '#define MyAppVersion "1.0.16"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
