@@ -305,6 +305,7 @@ Para publicar com mais tranquilidade:
 - Links privados, restritos por login, idade, região ou cookies podem falhar.
 - No app local, a opção **Login dedicado do VideoDrop** abre o Instagram em um perfil Firefox separado para links que exigem sessão.
 - Para usar esse fluxo, instale o Firefox e faça login no Instagram pela janela aberta pelo botão **Entrar no Instagram**.
+- O painel de login dedicado aparece apenas quando a URL analisada é do Instagram e a janela Firefox dedicada é fechada após a análise com login funcionar.
 - O VideoDrop usa apenas esse perfil dedicado como fonte de cookies para Instagram; Chrome, Edge e Brave não são usados para autenticação.
 - O tamanho exibido depende dos metadados da plataforma; quando não há tamanho real, o app estima por bitrate e duração.
 - No Chrome/Windows, o compartilhamento nativo precisa de uma etapa extra: primeiro o app prepara o arquivo, depois o botão **Compartilhar agora** abre o painel do sistema.

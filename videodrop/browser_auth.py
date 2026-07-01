@@ -91,6 +91,14 @@ def find_firefox_executable() -> Path | None:
     return candidates[0] if candidates else None
 
 
+def _hidden_process_kwargs() -> dict[str, int | subprocess.STARTUPINFO]:
+    if not sys.platform.startswith("win"):
+        return {}
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    return {"startupinfo": startupinfo, "creationflags": subprocess.CREATE_NO_WINDOW}
+
+
 def launch_dedicated_firefox_login() -> dict[str, str | bool]:
     firefox = find_firefox_executable()
     if firefox is None:
@@ -112,3 +120,34 @@ def launch_dedicated_firefox_login() -> dict[str, str | bool]:
             return {"ok": True, "browser": "firefox", "pid": "", "path": str(firefox)}
         raise OSError(f"O Firefox fechou logo apos abrir. Codigo: {process.returncode}")
     return {"ok": True, "browser": "firefox", "pid": str(process.pid), "path": str(firefox)}
+
+
+def close_dedicated_firefox_login() -> dict[str, int | bool]:
+    """Close only Firefox processes launched with VideoDrop's dedicated profile."""
+    if not sys.platform.startswith("win"):
+        return {"ok": True, "closed": 0}
+
+    profile_dir = dedicated_firefox_profile_dir()
+    command = (
+        "$profile = $env:VIDEODROP_FIREFOX_PROFILE_MATCH; "
+        "$ids = @(Get-CimInstance Win32_Process -Filter \"name = 'firefox.exe'\" | "
+        "Where-Object { $_.CommandLine -and $_.CommandLine.Contains($profile) } | "
+        "Select-Object -ExpandProperty ProcessId); "
+        "foreach ($id in $ids) { Stop-Process -Id $id -Force }; "
+        "Write-Output $ids.Count"
+    )
+    env = {**os.environ, "VIDEODROP_FIREFOX_PROFILE_MATCH": str(profile_dir)}
+    completed = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=env,
+        **_hidden_process_kwargs(),
+    )
+    if completed.returncode != 0:
+        raise OSError(completed.stderr.strip() or "Nao consegui fechar o Firefox dedicado.")
+
+    output = completed.stdout.strip().splitlines()
+    closed = int(output[-1]) if output and output[-1].isdigit() else 0
+    return {"ok": True, "closed": closed}

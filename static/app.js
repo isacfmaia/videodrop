@@ -105,9 +105,20 @@ function isInstagramUrl(value) {
   }
 }
 
+function isInstagramContext(urlValue = "", data = null) {
+  const site = String(data?.site || "").toLowerCase();
+  return isInstagramUrl(urlValue) || site.includes("instagram") || isInstagramUrl(data?.webpage_url || "");
+}
+
 function activeCookieBrowser(urlValue = currentUrl || input?.value || "") {
   if (!browserCookieAuthAvailable() || !browserAuthToggle?.checked) return "";
   return isInstagramUrl(urlValue) ? "firefox" : "";
+}
+
+function syncBrowserAuthVisibility(urlValue = input?.value || currentUrl || "", data = null) {
+  if (!browserAuthPanel) return;
+  const shouldShow = browserCookieAuthAvailable() && isInstagramContext(urlValue, data);
+  browserAuthPanel.hidden = !shouldShow;
 }
 
 function syncBrowserAuthSelectState() {
@@ -120,8 +131,8 @@ function setupBrowserAuthControls() {
   if (!browserAuthPanel || !browserAuthToggle || !browserLoginButton) return;
   if (!browserCookieAuthAvailable()) return;
 
-  browserAuthPanel.hidden = false;
   browserAuthToggle.checked = localStorage.getItem(BROWSER_AUTH_ENABLED_STORAGE_KEY) === "1";
+  syncBrowserAuthVisibility();
   syncBrowserAuthSelectState();
 
   browserAuthToggle.addEventListener("change", () => {
@@ -157,6 +168,15 @@ async function openDedicatedInstagramLogin() {
   } finally {
     browserLoginButton.textContent = previousLabel;
     syncBrowserAuthSelectState();
+  }
+}
+
+async function closeDedicatedInstagramLogin() {
+  if (!browserCookieAuthAvailable()) return;
+  try {
+    await fetch("/api/browser-login/instagram/close", { method: "POST" });
+  } catch {
+    // Best effort: the download flow should not fail if the login window stays open.
   }
 }
 
@@ -1279,6 +1299,7 @@ async function analyze(url) {
   closeShareSheet();
   clearRecordingResultState();
   input.value = currentUrl;
+  syncBrowserAuthVisibility(currentUrl);
   setLoading(currentUrl);
   setAnalyzingState(true);
   await waitForPaint();
@@ -1302,8 +1323,10 @@ async function analyze(url) {
     if (runId !== analyzeRunId) return;
 
     currentData = data;
+    syncBrowserAuthVisibility(currentUrl, data);
     renderPreview(data);
     renderFormats(data);
+    if (cookieBrowser) closeDedicatedInstagramLogin();
   } catch (error) {
     if (runId !== analyzeRunId) return;
     if (error.name === "AbortError" && activeController !== controller) return;
@@ -1325,6 +1348,10 @@ form.addEventListener("submit", (event) => {
 });
 
 // Event wiring.
+input.addEventListener("input", () => {
+  syncBrowserAuthVisibility(input.value);
+});
+
 themeToggle?.addEventListener("click", () => {
   const nextTheme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   setTheme(nextTheme);
@@ -1349,6 +1376,7 @@ window.addEventListener("paste", (event) => {
   event.preventDefault();
   pasteHint.textContent = "URL detectada. Carregando opções...";
   pasteHint.classList.add("flash");
+  syncBrowserAuthVisibility(text);
   analyze(text);
   window.setTimeout(() => {
     pasteHint.textContent = "Ctrl + V em qualquer lugar detecta URLs automaticamente";

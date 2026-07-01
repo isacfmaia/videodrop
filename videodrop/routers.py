@@ -15,7 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Response
 
 from . import downloads, extractor, thumbnails
-from .browser_auth import FirefoxNotFoundError, launch_dedicated_firefox_login
+from .browser_auth import FirefoxNotFoundError, close_dedicated_firefox_login, launch_dedicated_firefox_login
 from .config import (
     MAX_RECORDING_UPLOAD_BYTES,
     STATIC_DIR,
@@ -148,6 +148,18 @@ async def browser_login_instagram(request: Request) -> dict[str, str | bool]:
     except OSError as exc:
         logger.exception("Falha abrindo Firefox dedicado para login do Instagram.")
         raise HTTPException(status_code=500, detail="Nao consegui abrir o Firefox para login.") from exc
+
+
+@router.post("/api/browser-login/instagram/close")
+async def browser_login_instagram_close(request: Request) -> dict[str, int | bool]:
+    if not _is_local_client(request):
+        raise HTTPException(status_code=403, detail="Login dedicado disponivel apenas no app local.")
+
+    try:
+        return await asyncio.to_thread(close_dedicated_firefox_login)
+    except OSError as exc:
+        logger.exception("Falha fechando Firefox dedicado do VideoDrop.")
+        raise HTTPException(status_code=500, detail="Nao consegui fechar o Firefox dedicado.") from exc
 
 
 @router.post("/api/probe")

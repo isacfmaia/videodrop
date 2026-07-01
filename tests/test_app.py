@@ -75,8 +75,15 @@ def test_dedicated_firefox_login_controls_are_available_for_local_instagram_cook
     assert '<option value="brave">Brave</option>' not in html
     assert "function browserCookieAuthAvailable()" in app_js
     assert "function isInstagramUrl(value)" in app_js
+    assert "function isInstagramContext(urlValue" in app_js
+    assert "function syncBrowserAuthVisibility" in app_js
+    assert "browserAuthPanel.hidden = !shouldShow;" in app_js
     assert 'return isInstagramUrl(urlValue) ? "firefox" : "";' in app_js
     assert 'fetch("/api/browser-login/instagram", { method: "POST" })' in app_js
+    assert 'fetch("/api/browser-login/instagram/close", { method: "POST" })' in app_js
+    assert 'input.addEventListener("input", () => {' in app_js
+    assert "syncBrowserAuthVisibility(currentUrl, data);" in app_js
+    assert "if (cookieBrowser) closeDedicatedInstagramLogin();" in app_js
     assert "browserLoginButton.disabled = false;" in app_js
     assert "browserLoginButton.disabled = !browserAuthToggle.checked" not in app_js
     assert 'payload.cookie_browser = cookieBrowser' in app_js
@@ -113,6 +120,22 @@ def test_dedicated_instagram_login_endpoint_launches_firefox(client, monkeypatch
     assert calls == [True]
 
 
+def test_dedicated_instagram_login_close_endpoint_closes_firefox(client, monkeypatch):
+    calls = []
+
+    def fake_close():
+        calls.append(True)
+        return {"ok": True, "closed": 1}
+
+    monkeypatch.setattr(routers, "close_dedicated_firefox_login", fake_close)
+
+    response = client.post("/api/browser-login/instagram/close")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "closed": 1}
+    assert calls == [True]
+
+
 def test_dedicated_firefox_login_accepts_zero_exit_launcher(monkeypatch, tmp_path):
     calls = []
 
@@ -138,6 +161,32 @@ def test_dedicated_firefox_login_accepts_zero_exit_launcher(monkeypatch, tmp_pat
     assert result["pid"] == ""
     assert "-new-window" in calls[0]
     assert "https://www.instagram.com/accounts/login/" in calls[0]
+
+
+def test_close_dedicated_firefox_login_targets_profile_processes(monkeypatch, tmp_path):
+    calls = {}
+
+    class CompletedProcess:
+        returncode = 0
+        stdout = "2\n"
+        stderr = ""
+
+    def fake_run(args, **kwargs):
+        calls["args"] = args
+        calls["kwargs"] = kwargs
+        return CompletedProcess()
+
+    monkeypatch.setattr(browser_auth.sys, "platform", "win32")
+    monkeypatch.setattr(browser_auth, "dedicated_firefox_profile_dir", lambda: tmp_path / "FirefoxProfile")
+    monkeypatch.setattr(browser_auth, "_hidden_process_kwargs", lambda: {})
+    monkeypatch.setattr(browser_auth.subprocess, "run", fake_run)
+
+    result = browser_auth.close_dedicated_firefox_login()
+
+    assert result == {"ok": True, "closed": 2}
+    assert calls["args"][:3] == ["powershell.exe", "-NoProfile", "-ExecutionPolicy"]
+    assert calls["kwargs"]["env"]["VIDEODROP_FIREFOX_PROFILE_MATCH"] == str(tmp_path / "FirefoxProfile")
+    assert ".CommandLine.Contains($profile)" in calls["args"][-1]
 
 
 def test_screen_recorder_uses_browser_capture_and_share_apis():
@@ -277,7 +326,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.14"' in installer
+    assert '#define MyAppVersion "1.0.15"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
