@@ -139,6 +139,12 @@ async def browser_login_instagram(request: Request) -> dict[str, str | bool]:
         return await asyncio.to_thread(launch_dedicated_firefox_login)
     except FirefoxNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        logger.exception("Sem permissao para criar ou usar o perfil Firefox dedicado.")
+        raise HTTPException(
+            status_code=500,
+            detail="Nao consegui criar o perfil Firefox do VideoDrop. Feche o app e abra normalmente, sem administrador.",
+        ) from exc
     except OSError as exc:
         logger.exception("Falha abrindo Firefox dedicado para login do Instagram.")
         raise HTTPException(status_code=500, detail="Nao consegui abrir o Firefox para login.") from exc

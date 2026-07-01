@@ -32,12 +32,6 @@ const DOWNLOAD_READY_TIMEOUT_MS = 30 * 60 * 1000;
 const DOWNLOAD_READY_POLL_MS = 400;
 const DOWNLOAD_READY_COOKIE_PREFIX = "videodrop_download_";
 const BROWSER_AUTH_ENABLED_STORAGE_KEY = "videodrop-browser-auth-enabled";
-const DEDICATED_LOGIN_ERROR_MARKERS = [
-  "instagram nao entregou",
-  "instagram ainda nao entregou",
-  "login dedicado do videodrop",
-  "cookies do login dedicado"
-];
 const RECORDER_MIME_TYPES = [
   "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
@@ -214,40 +208,6 @@ function escapeHtml(value) {
   }[char]));
 }
 
-function shouldOfferDedicatedLogin(message) {
-  if (!browserCookieAuthAvailable() || !browserAuthToggle || !browserLoginButton) return false;
-  const normalizedMessage = message.toLowerCase();
-  return DEDICATED_LOGIN_ERROR_MARKERS.some((marker) => normalizedMessage.includes(marker));
-}
-
-function renderErrorActions(message) {
-  if (!shouldOfferDedicatedLogin(message)) return "";
-  return `
-    <div class="error-actions">
-      <button class="ghost-button error-retry-button" type="button" data-open-instagram-login>
-        Entrar no Instagram
-      </button>
-      <button class="ghost-button error-retry-button" type="button" data-retry-dedicated-login>
-        Tentar com login
-      </button>
-      <p>Use a janela do Firefox aberta pelo VideoDrop.</p>
-    </div>
-  `;
-}
-
-function wireErrorActions() {
-  const loginButton = results.querySelector("[data-open-instagram-login]");
-  loginButton?.addEventListener("click", openDedicatedInstagramLogin);
-
-  const retryButton = results.querySelector("[data-retry-dedicated-login]");
-  if (!retryButton) return;
-  retryButton.addEventListener("click", () => {
-    enableDedicatedLogin();
-    pasteHint.textContent = "Tentando de novo com Login dedicado...";
-    if (currentUrl) analyze(currentUrl);
-  });
-}
-
 function waitForPaint() {
   return new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(resolve));
@@ -303,10 +263,8 @@ function setError(message) {
   results.innerHTML = `
     <div class="error-state">
       <p>${escapeHtml(message)}</p>
-      ${renderErrorActions(message)}
     </div>
   `;
-  wireErrorActions();
 }
 
 function setRecorderStartError(message) {

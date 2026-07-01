@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import app as app_module
-from videodrop import downloads, extractor, routers, thumbnails
+from videodrop import browser_auth, downloads, extractor, routers, thumbnails
 from videodrop.config import _base_ydl_opts, dedicated_firefox_profile_dir
 
 
@@ -83,19 +83,18 @@ def test_dedicated_firefox_login_controls_are_available_for_local_instagram_cook
     assert 'params.set("cookie_browser", cookieBrowser)' in app_js
 
 
-def test_instagram_cookie_errors_offer_dedicated_login_action():
+def test_instagram_cookie_errors_do_not_duplicate_login_actions():
     app_js = (app_module.STATIC_DIR / "app.js").read_text(encoding="utf-8")
     styles = (app_module.STATIC_DIR / "styles.css").read_text(encoding="utf-8")
 
-    assert "DEDICATED_LOGIN_ERROR_MARKERS" in app_js
-    assert '"login dedicado do videodrop"' in app_js
-    assert "function renderErrorActions(message)" in app_js
-    assert "data-open-instagram-login" in app_js
-    assert "data-retry-dedicated-login" in app_js
     assert "openDedicatedInstagramLogin" in app_js
-    assert 'pasteHint.textContent = "Tentando de novo com Login dedicado..."' in app_js
+    assert "renderErrorActions" not in app_js
+    assert "wireErrorActions" not in app_js
+    assert "data-open-instagram-login" not in app_js
+    assert "data-retry-dedicated-login" not in app_js
+    assert "Tentando de novo com Login dedicado" not in app_js
     assert "escapeHtml(message)" in app_js
-    assert ".error-retry-button" in styles
+    assert ".error-retry-button" not in styles
 
 
 def test_dedicated_instagram_login_endpoint_launches_firefox(client, monkeypatch):
@@ -112,6 +111,33 @@ def test_dedicated_instagram_login_endpoint_launches_firefox(client, monkeypatch
     assert response.status_code == 200
     assert response.json() == {"ok": True, "browser": "firefox"}
     assert calls == [True]
+
+
+def test_dedicated_firefox_login_accepts_zero_exit_launcher(monkeypatch, tmp_path):
+    calls = []
+
+    class FakeFirefoxProcess:
+        pid = 1234
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    def fake_popen(args, stdout, stderr):
+        calls.append(args)
+        return FakeFirefoxProcess()
+
+    monkeypatch.setattr(browser_auth, "find_firefox_executable", lambda: tmp_path / "firefox.exe")
+    monkeypatch.setattr(browser_auth, "dedicated_firefox_profile_dir", lambda create=False: tmp_path / "profile")
+    monkeypatch.setattr(browser_auth.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(browser_auth.time, "sleep", lambda _seconds: None)
+
+    result = browser_auth.launch_dedicated_firefox_login()
+
+    assert result["ok"] is True
+    assert result["pid"] == ""
+    assert "-new-window" in calls[0]
+    assert "https://www.instagram.com/accounts/login/" in calls[0]
 
 
 def test_screen_recorder_uses_browser_capture_and_share_apis():
@@ -251,7 +277,7 @@ def test_windows_packaging_scripts_include_icon_installer_and_shortcuts():
     assert "Name: \"{userdesktop}\\VideoDrop\"" in installer
     assert "Name: \"{userstartup}\\VideoDrop\"" in installer
     assert "PrivilegesRequired=lowest" in installer
-    assert '#define MyAppVersion "1.0.13"' in installer
+    assert '#define MyAppVersion "1.0.14"' in installer
     assert "--install-hosts" not in installer
     assert "hosts" not in installer.lower()
 
